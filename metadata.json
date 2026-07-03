@@ -1,0 +1,11 @@
+{
+  "name": "Dating App with Video Verification",
+  "description": "Dating app featuring secure camera-based video verification, personality-based AI matching algorithms, and ephemeral 24-hour disappearing chats to foster intentional, meaningful connections.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
