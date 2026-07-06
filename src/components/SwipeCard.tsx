@@ -1,16 +1,45 @@
 import React, { useState } from 'react';
 import { MatchProfile } from '../types';
-import { Sparkles, Heart, X, CheckCircle, Info, RefreshCw, MessageSquare, ArrowRight, Clipboard, Check } from 'lucide-react';
+import { Sparkles, Heart, X, CheckCircle, Info, RefreshCw, MessageSquare, ArrowRight, Clipboard, Check, Shield, Flag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface SwipeCardProps {
   card: MatchProfile & { compatibilityScore?: number };
   onSwipe: (direction: 'left' | 'right') => void;
   onStartChatWithIcebreaker?: (matchProfileId: string, text: string) => void;
+  onBlockUser?: (profileId: string) => void;
 }
 
-export default function SwipeCard({ card, onSwipe, onStartChatWithIcebreaker }: SwipeCardProps) {
+export default function SwipeCard({ card, onSwipe, onStartChatWithIcebreaker, onBlockUser }: SwipeCardProps) {
   const [reportState, setReportState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
+  const [showBlockOptions, setShowBlockOptions] = useState(false);
+  const [isReporting, setIsReporting] = useState(false);
+  const [blockReason, setBlockReason] = useState('Spam / Fake Account');
+
+  const handleBlockUser = async (isReport: boolean) => {
+    try {
+      const endpoint = isReport ? '/api/report' : '/api/block';
+      const body = isReport ? { profileId: card.id, reason: blockReason } : { profileId: card.id };
+      
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-token': localStorage.getItem('aura_token') || ''
+        },
+        body: JSON.stringify(body)
+      });
+      
+      if (res.ok) {
+        onSwipe('left');
+        setShowBlockOptions(false);
+        setIsReporting(false);
+        onBlockUser?.(card.id);
+      }
+    } catch (err) {
+      console.error("Error blocking/reporting user:", err);
+    }
+  };
   const [compatibilityReport, setCompatibilityReport] = useState<string | null>(null);
   const [icebreakers, setIcebreakers] = useState<string[]>([]);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -199,6 +228,89 @@ export default function SwipeCard({ card, onSwipe, onStartChatWithIcebreaker }: 
             {reportState === 'failed' && (
               <p className="text-[10px] text-red-500 font-medium py-1">⚠️ Unable to generate compatibility report. Please check API settings or try again.</p>
             )}
+
+            {/* Block / Report Actions */}
+            <div className="pt-4 border-t border-neutral-100 dark:border-neutral-850 flex flex-col gap-2.5">
+              {!showBlockOptions ? (
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="text-neutral-400 dark:text-neutral-500 font-sans">Is this profile matching your standards?</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowBlockOptions(true)}
+                    className="text-neutral-400 hover:text-red-500 dark:text-neutral-500 dark:hover:text-red-400 font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Shield className="w-3 h-3" />
+                    <span>Block / Report</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-neutral-50 dark:bg-neutral-950/40 border border-neutral-150 dark:border-neutral-800/80 rounded-2xl p-3.5 space-y-3 text-left">
+                  <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 font-bold text-xs font-display">
+                    <Shield className="w-4 h-4 shrink-0" />
+                    <span>Safety Options for {card.name}</span>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsReporting(false)}
+                      className={`flex-grow py-1.5 px-3 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                        !isReporting 
+                          ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-neutral-100 dark:text-neutral-950' 
+                          : 'bg-white text-neutral-600 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700'
+                      }`}
+                    >
+                      Block User
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsReporting(true)}
+                      className={`flex-grow py-1.5 px-3 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                        isReporting 
+                          ? 'bg-red-600 text-white border-red-600' 
+                          : 'bg-white text-neutral-600 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700'
+                      }`}
+                    >
+                      Report & Block
+                    </button>
+                  </div>
+
+                  {isReporting && (
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider font-mono block">Select Reason</label>
+                      <select
+                        value={blockReason}
+                        onChange={(e) => setBlockReason(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-xs bg-white dark:bg-neutral-800 dark:text-neutral-100 focus:outline-hidden cursor-pointer"
+                      >
+                        <option value="Spam / Fake Account">Spam / Fake Account</option>
+                        <option value="Inappropriate Profile Details">Inappropriate Profile Details</option>
+                        <option value="Harassment / Offensive Behavior">Harassment / Offensive Behavior</option>
+                        <option value="Underage User">Underage User</option>
+                        <option value="Other">Other Reason</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowBlockOptions(false)}
+                      className="px-3 py-1.5 hover:bg-neutral-200/50 dark:hover:bg-neutral-800 rounded-lg text-[10px] text-neutral-500 font-bold transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBlockUser(isReporting)}
+                      className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                    >
+                      Confirm {isReporting ? 'Report' : 'Block'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

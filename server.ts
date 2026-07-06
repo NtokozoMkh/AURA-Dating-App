@@ -4,9 +4,11 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { UserProfile, MatchProfile, ChatMessage, Match, UserAccount } from "./src/types";
+import { UserProfile, MatchProfile, ChatMessage, Match, UserAccount, PaymentMethod } from "./src/types";
 import { createServer as createHttpServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import { initializeApp } from "firebase/app";
+import { initializeFirestore, setLogLevel, doc, getDoc, setDoc, collection, getDocs } from "firebase/firestore";
 
 dotenv.config();
 
@@ -15,6 +17,7 @@ const PORT = 3000;
 
 const httpServer = createHttpServer(app);
 const wss = new WebSocketServer({ noServer: true });
+let viteServer: any = null;
 
 // Manually handle httpServer upgrade events for the '/ws' path to avoid conflicts with Vite or proxy upgrade handlers
 httpServer.on("upgrade", (request, socket, head) => {
@@ -24,6 +27,9 @@ httpServer.on("upgrade", (request, socket, head) => {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit("connection", ws, request);
       });
+    } else if (viteServer && viteServer.ws) {
+      // Forward HMR socket connection requests to Vite
+      viteServer.ws.handleUpgrade(request, socket, head);
     }
   } catch (err) {
     console.error("Error routing upgrade in httpServer:", err);
@@ -231,7 +237,10 @@ const DEFAULT_USER_PROFILE: UserProfile = {
   avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
   isPremium: false,
   subscriptionPlan: "none",
-  subscriptionExpiresAt: 0
+  subscriptionExpiresAt: 0,
+  blockedUserIds: [],
+  reportedUserIds: [],
+  pushNotificationsEnabled: true
 };
 
 function readDb(): DatabaseSchema {
@@ -256,9 +265,56 @@ function readDb(): DatabaseSchema {
   };
 }
 
+// Safely load Firebase config
+const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
+// Set log level to 'error' to silence standard Firestore SDK idle connection cancellation warnings in Node.js
+setLogLevel("error");
+
+const firebaseApp = initializeApp(firebaseConfig);
+const dbFirestore = initializeFirestore(firebaseApp, {
+  experimentalAutoDetectLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId);
+
+async function syncFromFirestore(db: DatabaseSchema) {
+  try {
+    console.log("Syncing database from Firestore...");
+    const accountsCol = collection(dbFirestore, "accounts");
+    const snapshot = await getDocs(accountsCol);
+    if (!db.accounts) {
+      db.accounts = {};
+    }
+    snapshot.forEach((doc) => {
+      const username = doc.id;
+      const data = doc.data() as UserAccount;
+      if (db.accounts) {
+        db.accounts[username] = data;
+      }
+    });
+    console.log(`Successfully synced ${snapshot.size} accounts from Firestore.`);
+  } catch (err) {
+    console.error("Error syncing from Firestore:", err);
+  }
+}
+
+async function syncUserToFirestore(username: string, account: UserAccount) {
+  try {
+    const docRef = doc(dbFirestore, "accounts", username);
+    await setDoc(docRef, account);
+  } catch (err) {
+    console.error(`Error saving account for ${username} to Firestore:`, err);
+  }
+}
+
 function writeDb(db: DatabaseSchema) {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+    if (db.accounts) {
+      for (const username of Object.keys(db.accounts)) {
+        syncUserToFirestore(username, db.accounts[username]);
+      }
+    }
   } catch (error) {
     console.error("Error writing database file:", error);
   }
@@ -327,6 +383,11 @@ function saveAccountContext(req: any, context: any, db: DatabaseSchema) {
 const currentDb = readDb();
 writeDb(currentDb);
 
+// Sync from Firestore on startup
+syncFromFirestore(currentDb).then(() => {
+  writeDb(currentDb);
+});
+
 // API REST ENDPOINTS
 
 // Registration endpoint
@@ -369,6 +430,9 @@ app.post("/api/register", (req, res) => {
     isPremium: false,
     subscriptionPlan: "none",
     subscriptionExpiresAt: 0,
+    blockedUserIds: [],
+    reportedUserIds: [],
+    pushNotificationsEnabled: true,
   };
 
   const newAccount: UserAccount = {
@@ -438,6 +502,15 @@ app.post("/api/subscription/upgrade", (req, res) => {
 
   const db = readDb();
   const context = getAccountContext(req, db);
+
+  // Require at least one payment method for paid upgrades
+  if (plan !== "none") {
+    const paymentMethods = context.profile.paymentMethods || [];
+    if (paymentMethods.length === 0) {
+      return res.status(400).json({ error: "Please add a payment method before upgrading." });
+    }
+  }
+
   context.profile.isPremium = plan !== "none";
   context.profile.subscriptionPlan = plan;
   context.profile.subscriptionExpiresAt = plan !== "none" ? Date.now() + 30 * 24 * 60 * 60 * 1000 : 0; // 30 days
@@ -449,6 +522,92 @@ app.post("/api/subscription/upgrade", (req, res) => {
   
   saveAccountContext(req, context, db);
   res.json(context.profile);
+});
+
+// --- SUBSCRIPTION PAYMENT METHODS API ---
+
+// 1. Get payment methods
+app.get("/api/payment-methods", (req, res) => {
+  const db = readDb();
+  const context = getAccountContext(req, db);
+  res.json(context.profile.paymentMethods || []);
+});
+
+// 2. Add payment method
+app.post("/api/payment-methods", (req, res) => {
+  const { type, cardBrand, last4, expiry, email } = req.body;
+  if (!type || !["card", "paypal", "gpay"].includes(type)) {
+    return res.status(400).json({ error: "Invalid payment method type" });
+  }
+
+  const db = readDb();
+  const context = getAccountContext(req, db);
+
+  if (!context.profile.paymentMethods) {
+    context.profile.paymentMethods = [];
+  }
+
+  // If this is the first payment method, make it default
+  const isDefault = context.profile.paymentMethods.length === 0;
+
+  const newMethod: PaymentMethod = {
+    id: `pm_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    type,
+    isDefault,
+    cardBrand,
+    last4,
+    expiry,
+    email,
+    createdAt: Date.now()
+  };
+
+  context.profile.paymentMethods.push(newMethod);
+  saveAccountContext(req, context, db);
+  res.json(context.profile.paymentMethods);
+});
+
+// 3. Set default payment method
+app.post("/api/payment-methods/default", (req, res) => {
+  const { id } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Payment method ID is required" });
+  }
+
+  const db = readDb();
+  const context = getAccountContext(req, db);
+  const methods = context.profile.paymentMethods || [];
+
+  const updatedMethods = methods.map(pm => ({
+    ...pm,
+    isDefault: pm.id === id
+  }));
+
+  context.profile.paymentMethods = updatedMethods;
+  saveAccountContext(req, context, db);
+  res.json(updatedMethods);
+});
+
+// 4. Delete payment method
+app.delete("/api/payment-methods/:id", (req, res) => {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({ error: "Payment method ID is required" });
+  }
+
+  const db = readDb();
+  const context = getAccountContext(req, db);
+  const methods = context.profile.paymentMethods || [];
+
+  let updatedMethods = methods.filter(pm => pm.id !== id);
+
+  // Ensure there's still a default if methods remain
+  if (updatedMethods.length > 0 && !updatedMethods.some(pm => pm.isDefault)) {
+    updatedMethods[0].isDefault = true;
+  }
+
+  context.profile.paymentMethods = updatedMethods;
+  saveAccountContext(req, context, db);
+  res.json(updatedMethods);
 });
 
 // 3. Handle video verification
@@ -511,9 +670,11 @@ app.get("/api/cards", (req, res) => {
   const user = context.profile;
   const swipes = context.swipes;
 
-  // Filter out already swiped profiles
+  // Filter out already swiped profiles, and blocked/reported profiles
+  const blockedIds = user.blockedUserIds || [];
+  const reportedIds = user.reportedUserIds || [];
   const availableProfiles = DEFAULT_MATCH_PROFILES.filter(
-    (profile) => !swipes[profile.id]
+    (profile) => !swipes[profile.id] && !blockedIds.includes(profile.id) && !reportedIds.includes(profile.id)
   );
 
   // Map with compatibility score
@@ -589,8 +750,14 @@ app.get("/api/matches", (req, res) => {
     saveAccountContext(req, context, db);
   }
 
+  const blockedIds = context.profile.blockedUserIds || [];
+  const reportedIds = context.profile.reportedUserIds || [];
+  const unblockedMatches = context.matches.filter(
+    (match) => !blockedIds.includes(match.profile.id) && !reportedIds.includes(match.profile.id)
+  );
+
   // Map matches with their latest message
-  const matchesWithMessages = context.matches.map((match) => {
+  const matchesWithMessages = unblockedMatches.map((match) => {
     const matchMsgs = context.messages.filter((m) => m.matchId === match.id);
     matchMsgs.sort((a, b) => b.createdAt - a.createdAt); // newest first
     return {
@@ -607,6 +774,73 @@ app.get("/api/matches", (req, res) => {
   });
 
   res.json(matchesWithMessages);
+});
+
+// --- BLOCK / REPORT USER API ---
+
+// 1. Block a user
+app.post("/api/block", (req, res) => {
+  const { profileId } = req.body;
+  if (!profileId) {
+    return res.status(400).json({ error: "Profile ID is required" });
+  }
+
+  const db = readDb();
+  const context = getAccountContext(req, db);
+
+  if (!context.profile.blockedUserIds) {
+    context.profile.blockedUserIds = [];
+  }
+
+  if (!context.profile.blockedUserIds.includes(profileId)) {
+    context.profile.blockedUserIds.push(profileId);
+  }
+
+  // Save as swiped left to prevent rediscovering
+  context.swipes[profileId] = "left";
+
+  // Remove matching connections
+  context.matches = context.matches.filter(m => m.profile.id !== profileId && m.id !== profileId);
+
+  // Remove corresponding messages
+  context.messages = context.messages.filter(msg => msg.matchId !== profileId && !msg.matchId.startsWith(`match_${profileId}_`));
+
+  saveAccountContext(req, context, db);
+  res.json(context.profile);
+});
+
+// 2. Report a user
+app.post("/api/report", (req, res) => {
+  const { profileId, reason } = req.body;
+  if (!profileId) {
+    return res.status(400).json({ error: "Profile ID is required" });
+  }
+
+  const db = readDb();
+  const context = getAccountContext(req, db);
+
+  if (!context.profile.reportedUserIds) {
+    context.profile.reportedUserIds = [];
+  }
+
+  if (!context.profile.reportedUserIds.includes(profileId)) {
+    context.profile.reportedUserIds.push(profileId);
+  }
+
+  // Auto block reported users
+  if (!context.profile.blockedUserIds) {
+    context.profile.blockedUserIds = [];
+  }
+  if (!context.profile.blockedUserIds.includes(profileId)) {
+    context.profile.blockedUserIds.push(profileId);
+  }
+
+  context.swipes[profileId] = "left";
+  context.matches = context.matches.filter(m => m.profile.id !== profileId && m.id !== profileId);
+  context.messages = context.messages.filter(msg => msg.matchId !== profileId && !msg.matchId.startsWith(`match_${profileId}_`));
+
+  saveAccountContext(req, context, db);
+  res.json(context.profile);
 });
 
 // 8. Generate Gemini-powered detailed compatibility report
@@ -1124,6 +1358,7 @@ const startServer = async () => {
       server: { middlewareMode: true },
       appType: "spa",
     });
+    viteServer = vite;
     app.use(vite.middlewares);
     console.log("Vite middleware mounted for Development.");
   } else {

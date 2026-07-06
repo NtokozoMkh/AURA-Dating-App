@@ -6,7 +6,7 @@ import SwipeCard from './components/SwipeCard';
 import ChatRoom from './components/ChatRoom';
 import AuthScreen from './components/AuthScreen';
 import SplashScreen from './components/SplashScreen';
-import { Sparkles, MessageSquare, ShieldCheck, User, Compass, CheckCircle, Heart, Star, Flame, Loader2, RotateCcw, LogOut, Sun, Moon } from 'lucide-react';
+import { Sparkles, MessageSquare, ShieldCheck, User, Compass, CheckCircle, Heart, Star, Flame, Loader2, RotateCcw, LogOut, Sun, Moon, Bell, ShieldAlert, Shield, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
@@ -38,6 +38,106 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [cards, setCards] = useState<MatchProfile[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
+  
+  // Push Notification UI state
+  const [pushNotification, setPushNotification] = useState<{ title: string; body: string; avatarUrl?: string; onClick?: () => void } | null>(null);
+
+  const triggerPushNotification = (title: string, body: string, avatarUrl?: string, onClick?: () => void) => {
+    // Only show if notifications are enabled on the user profile
+    if (profile && profile.pushNotificationsEnabled === false) {
+      return;
+    }
+    setPushNotification({ title, body, avatarUrl, onClick });
+  };
+
+  // Auto-dismiss push notification banner after 4.5s
+  useEffect(() => {
+    if (pushNotification) {
+      const timer = setTimeout(() => {
+        setPushNotification(null);
+      }, 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [pushNotification]);
+
+  // Simulate background matching activity / notification sparks
+  const handleSimulatePush = () => {
+    const presets = [
+      {
+        name: "Sophia, 24",
+        bio: "Creative writer, coffee addict, vinyl enthusiast.",
+        avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80",
+        message: "Hey! Your personality profile is ENFP? That is such an amazing match! Let's chat! ✨"
+      },
+      {
+        name: "Daniel, 26",
+        bio: "Backyard astronomer, acoustic guitarist, baker.",
+        avatarUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=150&q=80",
+        message: "Spotted your vinyl records interest - what is your current rotation? 🎵"
+      },
+      {
+        name: "Elena, 25",
+        bio: "Museum curator, plant lover, weekend hiker.",
+        avatarUrl: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=150&q=80",
+        message: "Loved your bio! Let's get coffee and explore the contemporary gallery? ☕"
+      }
+    ];
+    
+    const selected = presets[Math.floor(Math.random() * presets.length)];
+    triggerPushNotification(
+      `New Spark from ${selected.name}`,
+      selected.message,
+      selected.avatarUrl,
+      () => {
+        setActiveTab('chats');
+      }
+    );
+  };
+
+  // Handle user blocked or reported from ChatRoom or SwipeCard
+  const handleUserBlockedOrReported = async (blockedProfileId: string) => {
+    if (!token) return;
+    try {
+      // Re-fetch profile to sync blocked lists
+      const pRes = await fetch('/api/profile', {
+        headers: { 'x-user-token': token }
+      });
+      if (pRes.ok) {
+        const updatedProfile = await pRes.json();
+        setProfile(updatedProfile);
+      }
+
+      // Re-fetch matches
+      const mRes = await fetch('/api/matches', {
+        headers: { 'x-user-token': token }
+      });
+      if (mRes.ok) {
+        const updatedMatches = await mRes.json();
+        setMatches(updatedMatches);
+        
+        // If active chat partner is blocked, clear activeMatchId
+        if (activeMatchId) {
+          const isStillMatch = updatedMatches.some((m: any) => m.profile.id === blockedProfileId || m.id === blockedProfileId);
+          if (!isStillMatch) {
+            setActiveMatchId(null);
+          }
+        }
+      }
+
+      // Re-fetch card deck
+      const cRes = await fetch('/api/cards', {
+        headers: { 'x-user-token': token }
+      });
+      if (cRes.ok) setCards(await cRes.json());
+      
+      triggerPushNotification(
+        "Action Confirmed", 
+        "Profile successfully blocked and removed from matches."
+      );
+    } catch (err) {
+      console.error("Error updating state after block:", err);
+    }
+  };
   
   // App UI state
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
@@ -284,103 +384,125 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 pb-12 flex flex-col relative" id="applet-root">
-      {/* Decorative Aura background colors */}
-      <div className="absolute top-0 right-0 w-[45vw] h-[45vw] bg-pink-500/5 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-[45vw] h-[45vw] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
-
-      {/* Top Header Navigation */}
-      <header className="bg-white dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 py-3 sm:py-4 px-4 sm:px-6 sticky top-0 z-40 backdrop-blur-md/90 shadow-xs" id="applet-header">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
-          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-start">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-linear-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-pink-500/10">
-              <Flame className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 flex flex-col lg:flex-row relative" id="applet-root">
+      
+      {/* 1. Desktop Left Sidebar Navigation (Sticky Sidebar on Desktop) */}
+      <aside className="hidden lg:flex w-64 border-r border-neutral-150 dark:border-neutral-800 bg-white dark:bg-neutral-900 h-screen sticky top-0 flex-col justify-between p-6 shrink-0 z-40">
+        <div className="space-y-8 text-left">
+          {/* Brand Logo */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-linear-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-pink-500/10 shrink-0">
+              <Flame className="w-5 h-5 fill-current" />
             </div>
-            <div className="text-left flex items-center gap-2">
-              <div>
-                <h1 className="text-base sm:text-lg font-black font-display tracking-tight leading-none bg-linear-to-r from-neutral-900 to-neutral-700 dark:from-white dark:to-neutral-300 bg-clip-text text-transparent">AURA</h1>
-                <span className="text-[8px] sm:text-[9px] font-bold text-pink-500 tracking-wider uppercase font-mono">Intentional & verified</span>
-              </div>
-              {profile?.isPremium && (
-                <span className={`px-1.5 py-0.5 text-[8px] font-mono font-black uppercase rounded tracking-wider ${
-                  profile.subscriptionPlan === 'infinite' 
-                    ? 'bg-indigo-950 text-indigo-300 border border-indigo-500/30' 
-                    : 'bg-amber-100 text-amber-700 border border-amber-300'
-                }`}>
-                  {profile.subscriptionPlan === 'infinite' ? '👑 VIP' : '✦ GOLD'}
-                </span>
-              )}
+            <div>
+              <h1 className="text-lg font-black font-display tracking-tight leading-none bg-linear-to-r from-neutral-900 to-neutral-700 dark:from-white dark:to-neutral-300 bg-clip-text text-transparent">AURA</h1>
+              <span className="text-[9px] font-bold text-pink-500 tracking-wider uppercase font-mono">Intentional & verified</span>
             </div>
           </div>
 
-          {/* Core App Navigation Controls */}
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-            <div className="grid grid-cols-4 sm:flex sm:items-center gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-2xl w-full sm:w-auto" id="nav-tabs-deck">
-              <button
-                onClick={() => setActiveTab('discover')}
-                className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
-                  activeTab === 'discover' 
-                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
-                    : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
-                }`}
-                id="tab-discover"
-              >
-                <Compass className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span>Discover</span>
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab('chats');
-                  if (matches.length > 0 && !activeMatchId) {
-                    setActiveMatchId(matches[0].id);
-                  }
-                }}
-                className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 relative cursor-pointer whitespace-nowrap ${
-                  activeTab === 'chats' 
-                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
-                    : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
-                }`}
-                id="tab-chats"
-              >
-                <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span>Chats</span>
-                {matches.length > 0 && (
-                  <span className="absolute top-1.5 right-1.5 sm:top-1 sm:right-1 w-2 h-2 bg-pink-500 rounded-full" />
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab('verify')}
-                className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
-                  activeTab === 'verify' 
-                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
-                    : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
-                }`}
-                id="tab-verify"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span>Verify</span>
-                {profile?.isVerified && (
-                  <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-500 fill-current shrink-0" />
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab('profile')}
-                className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
-                  activeTab === 'profile' 
-                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
-                    : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
-                }`}
-                id="tab-profile"
-              >
-                <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span>Profile</span>
-              </button>
+          {/* User profile information capsule */}
+          {profile && (
+            <div className="flex items-center gap-3 bg-neutral-50 dark:bg-neutral-950 p-3 rounded-2xl border border-neutral-100 dark:border-neutral-800/60">
+              <img
+                src={profile.avatarUrl}
+                alt={profile.name}
+                className="w-10 h-10 rounded-full object-cover ring-2 ring-pink-500/20 shrink-0"
+                referrerPolicy="no-referrer"
+              />
+              <div className="min-w-0 text-left">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate">{profile.name}</span>
+                  {profile.isPremium && (
+                    <span className="px-1 text-[8px] font-mono font-black uppercase rounded tracking-wider bg-amber-100 text-amber-700 shrink-0">✦</span>
+                  )}
+                </div>
+                <p className="text-[10px] text-neutral-400 dark:text-neutral-500 truncate font-mono">{profile.mbti} • {profile.occupation || "Product Designer"}</p>
+              </div>
             </div>
+          )}
 
-            {/* Header Theme Toggle */}
+          {/* Vertical Menu Items */}
+          <nav className="flex flex-col gap-1.5" id="desktop-sidebar-nav">
+            <button
+              onClick={() => setActiveTab('discover')}
+              className={`w-full px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-3 cursor-pointer ${
+                activeTab === 'discover' 
+                  ? 'bg-pink-500 text-white shadow-md font-extrabold' 
+                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-850'
+              }`}
+            >
+              <Compass className="w-4 h-4 shrink-0" />
+              <span>Discover Match Deck</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveTab('chats');
+                if (matches.length > 0 && !activeMatchId) {
+                  setActiveMatchId(matches[0].id);
+                }
+              }}
+              className={`w-full px-4 py-3 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer ${
+                activeTab === 'chats' 
+                  ? 'bg-pink-500 text-white shadow-md font-extrabold' 
+                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-850'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <MessageSquare className="w-4 h-4 shrink-0" />
+                <span>Inbox Messages</span>
+              </div>
+              {matches.length > 0 && (
+                <span className="w-2 h-2 bg-pink-500 rounded-full shrink-0" />
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('verify')}
+              className={`w-full px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-3 cursor-pointer ${
+                activeTab === 'verify' 
+                  ? 'bg-pink-500 text-white shadow-md font-extrabold' 
+                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-850'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span>Liveness Verification</span>
+              {profile?.isVerified && (
+                <CheckCircle className="w-3.5 h-3.5 text-blue-500 fill-current shrink-0 ml-auto" />
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`w-full px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-3 cursor-pointer ${
+                activeTab === 'profile' 
+                  ? 'bg-pink-500 text-white shadow-md font-extrabold' 
+                  : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-850'
+              }`}
+            >
+              <User className="w-4 h-4 shrink-0" />
+              <span>My Profile Settings</span>
+            </button>
+          </nav>
+        </div>
+
+        {/* Footer actions of Desktop Sidebar */}
+        <div className="space-y-4">
+          {/* Simulation Spark Trigger */}
+          <button
+            onClick={handleSimulatePush}
+            className="w-full py-2.5 px-3 bg-pink-50 hover:bg-pink-100 dark:bg-pink-950/20 dark:hover:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-150 dark:border-pink-900/30 rounded-xl text-[10px] font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs font-sans"
+            title="Simulate background push match spark"
+          >
+            <Bell className="w-3.5 h-3.5 animate-bounce" />
+            <span>Simulate Push Spark</span>
+          </button>
+
+          <div className="flex items-center justify-between pt-3 border-t border-neutral-100 dark:border-neutral-800">
+            {/* Theme Selector */}
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className="hidden sm:block p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
+              className="p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-850 rounded-xl transition cursor-pointer"
               title="Toggle Theme"
             >
               {darkMode ? (
@@ -390,19 +512,140 @@ export default function App() {
               )}
             </button>
 
+            {/* Logout Button */}
             <button
               onClick={handleSignOut}
-              className="hidden sm:flex items-center justify-center p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
+              className="flex items-center gap-2 p-2.5 text-neutral-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-neutral-50 dark:hover:bg-neutral-850 rounded-xl transition cursor-pointer text-xs font-bold"
               title="Sign Out"
             >
               <LogOut className="w-4.5 h-4.5" />
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
-      </header>
+      </aside>
 
-      {/* Main Container Workspace */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 pt-8" id="applet-main-workspace">
+      {/* 2. Main Page Layout Area (Header Navigation on Mobile, Sidebar layout on Desktop) */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        
+        {/* Decorative Aura background colors */}
+        <div className="absolute top-0 right-0 w-[45vw] h-[45vw] bg-pink-500/5 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-[45vw] h-[45vw] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
+
+        {/* Top Header Navigation (Mobile Only) */}
+        <header className="lg:hidden bg-white dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 py-3 sm:py-4 px-4 sm:px-6 sticky top-0 z-40 backdrop-blur-md/90 shadow-xs" id="applet-header">
+          <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-start">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 bg-linear-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-pink-500/10">
+                <Flame className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+              </div>
+              <div className="text-left flex items-center gap-2">
+                <div>
+                  <h1 className="text-base sm:text-lg font-black font-display tracking-tight leading-none bg-linear-to-r from-neutral-900 to-neutral-700 dark:from-white dark:to-neutral-300 bg-clip-text text-transparent">AURA</h1>
+                  <span className="text-[8px] sm:text-[9px] font-bold text-pink-500 tracking-wider uppercase font-mono">Intentional & verified</span>
+                </div>
+                {profile?.isPremium && (
+                  <span className={`px-1.5 py-0.5 text-[8px] font-mono font-black uppercase rounded tracking-wider ${
+                    profile.subscriptionPlan === 'infinite' 
+                      ? 'bg-indigo-950 text-indigo-300 border border-indigo-500/30' 
+                      : 'bg-amber-100 text-amber-700 border border-amber-300'
+                  }`}>
+                    {profile.subscriptionPlan === 'infinite' ? '👑 VIP' : '✦ GOLD'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Core App Navigation Controls */}
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+              <div className="grid grid-cols-4 sm:flex sm:items-center gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-2xl w-full sm:w-auto" id="nav-tabs-deck">
+                <button
+                  onClick={() => setActiveTab('discover')}
+                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                    activeTab === 'discover' 
+                      ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
+                      : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+                  }`}
+                  id="tab-discover"
+                >
+                  <Compass className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <span>Discover</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('chats');
+                    if (matches.length > 0 && !activeMatchId) {
+                      setActiveMatchId(matches[0].id);
+                    }
+                  }}
+                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 relative cursor-pointer whitespace-nowrap ${
+                    activeTab === 'chats' 
+                      ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
+                      : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+                  }`}
+                  id="tab-chats"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <span>Chats</span>
+                  {matches.length > 0 && (
+                    <span className="absolute top-1.5 right-1.5 sm:top-1 sm:right-1 w-2 h-2 bg-pink-500 rounded-full" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('verify')}
+                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                    activeTab === 'verify' 
+                      ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
+                      : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+                  }`}
+                  id="tab-verify"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <span>Verify</span>
+                  {profile?.isVerified && (
+                    <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-500 fill-current shrink-0" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('profile')}
+                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                    activeTab === 'profile' 
+                      ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
+                      : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+                  }`}
+                  id="tab-profile"
+                >
+                  <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <span>Profile</span>
+                </button>
+              </div>
+
+              {/* Header Theme Toggle */}
+              <button
+                onClick={() => setDarkMode(!darkMode)}
+                className="hidden sm:block p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
+                title="Toggle Theme"
+              >
+                {darkMode ? (
+                  <Sun className="w-4.5 h-4.5 text-amber-500" />
+                ) : (
+                  <Moon className="w-4.5 h-4.5 text-indigo-400" />
+                )}
+              </button>
+
+              <button
+                onClick={handleSignOut}
+                className="hidden sm:flex items-center justify-center p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
+                title="Sign Out"
+              >
+                <LogOut className="w-4.5 h-4.5" />
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Container Workspace */}
+        <main className={`flex-1 w-full mx-auto px-4 pt-6 md:pt-8 transition-all duration-300 ${activeTab === 'chats' ? 'max-w-7xl' : 'max-w-5xl'}`} id="applet-main-workspace">
         <AnimatePresence mode="wait">
           {activeTab === 'discover' && (
             <motion.div
@@ -417,6 +660,7 @@ export default function App() {
                   card={cards[0]}
                   onSwipe={(direction) => handleSwipe(cards[0].id, direction)}
                   onStartChatWithIcebreaker={handleStartChatWithIcebreaker}
+                  onBlockUser={handleUserBlockedOrReported}
                 />
               ) : (
                 <div className="max-w-md mx-auto text-center py-16 px-6 bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-3xl shadow-sm space-y-4">
@@ -454,6 +698,7 @@ export default function App() {
                 onSendMessage={() => {}} // API is completely managed within ChatRoom itself
                 onBackToMatches={() => setActiveMatchId(null)}
                 userProfile={profile}
+                onBlockUser={handleUserBlockedOrReported}
               />
             </motion.div>
           )}
@@ -492,6 +737,7 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+      </div>
 
       {/* Match Overlay Dialogue Popup Modal */}
       <AnimatePresence>
@@ -557,6 +803,62 @@ export default function App() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Real-time Simulated Push Notification Banner */}
+      <AnimatePresence>
+        {pushNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.93 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 w-full max-w-sm px-4 z-[100]"
+          >
+            <div 
+              onClick={() => {
+                if (pushNotification.onClick) pushNotification.onClick();
+                setPushNotification(null);
+              }}
+              className="bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md border border-neutral-200/60 dark:border-neutral-800 shadow-2xl rounded-2xl p-3.5 flex items-start gap-3 text-left cursor-pointer hover:border-pink-500/20 transition relative animate-pulse-subtle"
+            >
+              {pushNotification.avatarUrl ? (
+                <img
+                  src={pushNotification.avatarUrl}
+                  alt="Avatar"
+                  className="w-10 h-10 rounded-full object-cover shrink-0 ring-2 ring-pink-500/20"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-10 h-10 bg-pink-500 text-white rounded-full flex items-center justify-center shrink-0">
+                  <Bell className="w-5 h-5 fill-current" />
+                </div>
+              )}
+              
+              <div className="flex-1 min-w-0">
+                <h4 className="text-xs font-bold text-neutral-900 dark:text-neutral-100 font-sans flex items-center gap-1.5">
+                  <span>{pushNotification.title}</span>
+                  <span className="w-1.5 h-1.5 bg-pink-500 rounded-full animate-ping" />
+                </h4>
+                <p className="text-[10px] text-neutral-500 dark:text-neutral-400 leading-normal mt-0.5 line-clamp-2 font-medium">
+                  {pushNotification.body}
+                </p>
+              </div>
+
+              {/* Dismiss X button */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPushNotification(null);
+                }}
+                className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-850 rounded-full text-neutral-400 hover:text-neutral-600 transition shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

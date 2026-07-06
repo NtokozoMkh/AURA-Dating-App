@@ -11,6 +11,7 @@ interface ChatRoomProps {
   onSendMessage: (matchId: string, text: string) => void;
   onBackToMatches?: () => void;
   userProfile: UserProfile | null;
+  onBlockUser?: (profileId: string) => void;
 }
 
 export default function ChatRoom({
@@ -19,7 +20,8 @@ export default function ChatRoom({
   onSelectMatch,
   onSendMessage,
   onBackToMatches,
-  userProfile
+  userProfile,
+  onBlockUser
 }: ChatRoomProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -37,6 +39,39 @@ export default function ChatRoom({
   const [profileReportState, setProfileReportState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
   const [profileCompatibilityReport, setProfileCompatibilityReport] = useState<string | null>(null);
   const [profileIcebreakers, setProfileIcebreakers] = useState<string[]>([]);
+
+  // Block / Report States
+  const [chatBlockModalOpen, setChatBlockModalOpen] = useState(false);
+  const [isReportingChat, setIsReportingChat] = useState(false);
+  const [chatBlockReason, setChatBlockReason] = useState('Spam / Fake Account');
+
+  const handleBlockChatPartner = async () => {
+    if (!activeMatch) return;
+    try {
+      const endpoint = isReportingChat ? '/api/report' : '/api/block';
+      const body = isReportingChat 
+        ? { profileId: activeMatch.profile.id, reason: chatBlockReason } 
+        : { profileId: activeMatch.profile.id };
+        
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-token': localStorage.getItem('aura_token') || ''
+        },
+        body: JSON.stringify(body)
+      });
+      
+      if (res.ok) {
+        setChatBlockModalOpen(false);
+        if (onBlockUser) {
+          onBlockUser(activeMatch.profile.id);
+        }
+      }
+    } catch (err) {
+      console.error("Error blocking chat partner:", err);
+    }
+  };
 
   // Reset local typing indicator states and profile modal states when switching active match
   useEffect(() => {
@@ -563,9 +598,9 @@ export default function ChatRoom({
   );
 
   return (
-    <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-100 dark:border-neutral-800 shadow-sm overflow-hidden h-[calc(100vh-140px)] min-h-[500px] max-h-[750px] flex" id="chat-room-container">
+    <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-100 dark:border-neutral-800 shadow-sm overflow-hidden h-[calc(100vh-140px)] lg:h-[calc(100vh-100px)] min-h-[500px] lg:max-h-[850px] flex" id="chat-room-container">
       {/* Matches Sidebar (Left side on desktop, hidden on active chat on mobile) */}
-      <div className={`w-full md:w-80 border-r border-neutral-100 dark:border-neutral-800 flex flex-col bg-neutral-50/20 dark:bg-neutral-950/20 ${activeMatchId ? 'hidden md:flex' : 'flex'}`} id="chat-sidebar">
+      <div className={`w-full lg:w-80 border-r border-neutral-100 dark:border-neutral-800 flex flex-col bg-neutral-50/20 dark:bg-neutral-950/20 ${activeMatchId ? 'hidden lg:flex' : 'flex'}`} id="chat-sidebar">
         <div className="p-4 border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 space-y-1.5 text-left">
           <h3 className="text-base font-bold font-display text-neutral-900 dark:text-neutral-100">Intentional Chats</h3>
           <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium leading-relaxed">
@@ -639,7 +674,7 @@ export default function ChatRoom({
       </div>
 
       {/* Main Chat Feed Area (Right side) */}
-      <div className={`flex-1 flex flex-col bg-white dark:bg-neutral-900 ${!activeMatchId ? 'hidden md:flex items-center justify-center text-center p-8 text-neutral-400 dark:text-neutral-500' : 'flex'}`} id="chat-workspace">
+      <div className={`flex-1 flex flex-col bg-white dark:bg-neutral-900 ${!activeMatchId ? 'hidden lg:flex items-center justify-center text-center p-8 text-neutral-400 dark:text-neutral-500' : 'flex'}`} id="chat-workspace">
         {activeMatch ? (
           <>
             {/* Header */}
@@ -648,7 +683,7 @@ export default function ChatRoom({
                 {onBackToMatches && (
                   <button
                     onClick={onBackToMatches}
-                    className="md:hidden p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg text-neutral-500 mr-0.5 shrink-0"
+                    className="lg:hidden p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg text-neutral-500 mr-0.5 shrink-0"
                   >
                     <ArrowLeft className="w-4 h-4" />
                   </button>
@@ -708,6 +743,20 @@ export default function ChatRoom({
                   <span className="hidden sm:inline">View Profile</span>
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReportingChat(false);
+                    setChatBlockModalOpen(true);
+                  }}
+                  className="flex items-center justify-center w-7 h-7 sm:w-auto sm:px-3 sm:py-1.5 bg-red-50 hover:bg-red-105 dark:bg-red-950/20 dark:hover:bg-red-950/45 text-red-600 dark:text-red-400 rounded-xl transition cursor-pointer text-xs font-bold border border-red-100/40 dark:border-red-950/20"
+                  title="Block or Report user"
+                  id="chat-block-btn"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline ml-1">Block / Report</span>
+                </button>
+
                 <div className="flex flex-col items-end text-right">
                   <span className="hidden sm:inline text-[9px] font-bold text-neutral-400 uppercase tracking-wider font-mono">Chat Life</span>
                   <div className="flex items-center gap-1 text-amber-600 font-mono text-[10px] sm:text-xs font-black bg-amber-50 dark:bg-amber-950/20 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full border border-amber-100 dark:border-amber-900/30">
@@ -719,7 +768,7 @@ export default function ChatRoom({
             </div>
 
             {/* Chat Messages scroll area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-neutral-50/50 dark:bg-neutral-950/10" id="chat-messages-scroll">
+            <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4 lg:space-y-5 bg-neutral-50/50 dark:bg-neutral-950/10" id="chat-messages-scroll">
               <div className="mx-auto max-w-xs bg-amber-50/80 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 text-amber-800 dark:text-amber-300 p-2.5 rounded-xl text-center flex items-start gap-2 text-[10px] font-semibold leading-relaxed mb-4">
                 <ShieldAlert className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
                 <p>
@@ -743,7 +792,7 @@ export default function ChatRoom({
                     >
                       <div className="max-w-[75%] space-y-1">
                         <div
-                          className={`p-3.5 rounded-2xl text-xs font-medium leading-relaxed text-left ${
+                          className={`p-3.5 lg:p-4 rounded-2xl text-xs lg:text-sm font-medium leading-relaxed text-left ${
                             isMe
                               ? 'bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-950 rounded-br-none shadow-xs'
                               : 'bg-white dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100 rounded-bl-none shadow-xs'
@@ -822,7 +871,7 @@ export default function ChatRoom({
             </div>
 
             {/* Input bar */}
-            <div className="p-4 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 relative">
+            <div className="p-4 lg:p-5 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 relative">
               {isRecording ? (
                 // Recording visual bar
                 <div className="flex items-center justify-between bg-pink-50/50 dark:bg-pink-950/20 border border-pink-100 dark:border-pink-900/40 px-4 py-3 rounded-2xl animate-pulse" id="voice-recording-bar">
@@ -1194,6 +1243,94 @@ export default function ChatRoom({
                         className="px-5 py-2 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-950 text-xs font-bold rounded-xl transition cursor-pointer"
                       >
                         Back to Chat
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Block / Report Safety Modal */}
+            <AnimatePresence>
+              {chatBlockModalOpen && activeMatch && (
+                <div className="fixed inset-0 bg-neutral-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                    transition={{ type: "spring", duration: 0.4 }}
+                    className="bg-white dark:bg-neutral-900 rounded-3xl max-w-sm w-full overflow-hidden border border-neutral-100 dark:border-neutral-800 shadow-2xl flex flex-col text-left p-6 space-y-4"
+                    id="chat-block-modal"
+                  >
+                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                      <ShieldAlert className="w-5 h-5 shrink-0 text-red-500" />
+                      <h3 className="text-base font-bold font-display">
+                        Block or Report {activeMatch.profile.name}?
+                      </h3>
+                    </div>
+
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed font-sans">
+                      Blocking will completely dissolve your match with {activeMatch.profile.name} and clear all conversation history. This action is irreversible.
+                    </p>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsReportingChat(false)}
+                        className={`flex-grow py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                          !isReportingChat 
+                            ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-neutral-100 dark:text-neutral-950' 
+                            : 'bg-white text-neutral-600 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700'
+                        }`}
+                      >
+                        Block Only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsReportingChat(true)}
+                        className={`flex-grow py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                          isReportingChat 
+                            ? 'bg-red-600 text-white border-red-600' 
+                            : 'bg-white text-neutral-600 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700'
+                        }`}
+                      >
+                        Report & Block
+                      </button>
+                    </div>
+
+                    {isReportingChat && (
+                      <div className="space-y-1.5 text-left">
+                        <label className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono block">
+                          Reason for Reporting
+                        </label>
+                        <select
+                          value={chatBlockReason}
+                          onChange={(e) => setChatBlockReason(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 text-xs bg-neutral-50/50 dark:bg-neutral-800 dark:text-neutral-100 focus:outline-hidden cursor-pointer"
+                        >
+                          <option value="Spam / Fake Account">Spam / Fake Account</option>
+                          <option value="Inappropriate Profile Details">Inappropriate Profile Details</option>
+                          <option value="Harassment / Offensive Behavior">Harassment / Offensive Behavior</option>
+                          <option value="Underage User">Underage User</option>
+                          <option value="Other">Other Reason</option>
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2.5 pt-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setChatBlockModalOpen(false)}
+                        className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-700 dark:text-neutral-300 text-xs font-bold rounded-xl transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleBlockChatPartner}
+                        className="px-4.5 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition cursor-pointer font-sans"
+                      >
+                        Confirm {isReportingChat ? 'Report' : 'Block'}
                       </button>
                     </div>
                   </motion.div>

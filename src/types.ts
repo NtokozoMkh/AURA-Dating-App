@@ -16,6 +16,21 @@ export interface UserProfile {
   isPremium?: boolean;
   subscriptionPlan?: 'none' | 'gold' | 'infinite';
   subscriptionExpiresAt?: number;
+  paymentMethods?: PaymentMethod[];
+  blockedUserIds?: string[];
+  reportedUserIds?: string[];
+  pushNotificationsEnabled?: boolean;
+}
+
+export interface PaymentMethod {
+  id: string;
+  type: 'card' | 'paypal' | 'gpay';
+  isDefault: boolean;
+  cardBrand?: string;
+  last4?: string;
+  expiry?: string;
+  email?: string;
+  createdAt: number;
 }
 
 export interface MatchProfile {

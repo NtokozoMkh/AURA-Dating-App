@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Information about a registered user, their MBTI type, preferences, and premium status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The user's unique identification key" },
+        "name": { "type": "string", "description": "User's display name" },
+        "age": { "type": "integer", "description": "Age of the user" },
+        "gender": { "type": "string", "description": "User's gender identity" },
+        "lookingFor": { "type": "string", "description": "Who the user is looking for (men, women, everyone)" },
+        "bio": { "type": "string", "description": "Brief autobiography or introduction" },
+        "occupation": { "type": "string", "description": "Profession or job title" },
+        "interests": { "type": "array", "description": "List of hobbies or interests" },
+        "mbti": { "type": "string", "description": "Myers-Briggs Type Indicator classification" },
+        "personalityAnswers": { "type": "object", "description": "Myers-Briggs slider answers" },
+        "isVerified": { "type": "boolean", "description": "Whether the user is AI video-verified" },
+        "verificationStatus": { "type": "string", "description": "Status of the AI video verification" },
+        "avatarUrl": { "type": "string", "description": "Public URL to the user's avatar image" },
+        "isPremium": { "type": "boolean", "description": "Premium status indicator" },
+        "subscriptionPlan": { "type": "string", "description": "Premium level (none, gold, infinite)" },
+        "subscriptionExpiresAt": { "type": "integer", "description": "Epoch timestamp of when the subscription expires" }
+      },
+      "required": ["id", "name", "age", "gender"]
+    },
+    "PaymentMethod": {
+      "title": "Payment Method",
+      "description": "Detailed payment instrument (e.g. Credit Card, PayPal) used for subscription bills.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique payment method ID" },
+        "type": { "type": "string", "description": "Type of payment: card, paypal, gpay" },
+        "isDefault": { "type": "boolean", "description": "Whether this is the primary payment instrument" },
+        "cardBrand": { "type": "string", "description": "The card vendor, e.g. visa, mastercard" },
+        "last4": { "type": "string", "description": "Last four digits of the card number" },
+        "expiry": { "type": "string", "description": "Expiry date as MM/YY" },
+        "email": { "type": "string", "description": "Email associated with PayPal or external provider" },
+        "createdAt": { "type": "integer", "description": "Timestamp of payment method setup" }
+      },
+      "required": ["id", "type", "isDefault"]
+    },
+    "Swipe": {
+      "title": "Swipe Action",
+      "description": "Records dating swipe direction on other user profiles.",
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" },
+        "direction": { "type": "string", "enum": ["left", "right"] },
+        "timestamp": { "type": "integer" }
+      },
+      "required": ["profileId", "direction"]
+    },
+    "Match": {
+      "title": "Match Connection",
+      "description": "A successful reciprocal dating match connection between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "profileId": { "type": "string" },
+        "matchedAt": { "type": "integer" }
+      },
+      "required": ["id", "profileId", "matchedAt"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "Message log inside an active match conversation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "matchId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "integer" },
+        "mediaUrl": { "type": "string" },
+        "mediaType": { "type": "string" },
+        "voiceDuration": { "type": "integer" }
+      },
+      "required": ["id", "matchId", "senderId", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Holds the primary profiles of registered users."
+    },
+    "/users/{userId}/payment_methods/{methodId}": {
+      "schema": "PaymentMethod",
+      "description": "Subcollection storing credit card or payment methods for subscribers."
+    },
+    "/users/{userId}/swipes/{swipeId}": {
+      "schema": "Swipe",
+      "description": "Subcollection recording user swipe history."
+    },
+    "/users/{userId}/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Subcollection holding active match profiles."
+    },
+    "/users/{userId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Individual messages sent or received by this user."
+    }
+  }
+}

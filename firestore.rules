@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net - Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL REUSABLE HELPER FUNCTIONS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- ENTITY-SPECIFIC VALIDATION BLUEPRINTS ---
+    function isValidUserProfile(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 100
+        && data.age is int && data.age >= 18 && data.age <= 120
+        && data.gender is string && data.gender.size() <= 50
+        && data.mbti is string && data.mbti.size() <= 8
+        && data.bio is string && data.bio.size() <= 1000
+        && data.occupation is string && data.occupation.size() <= 200;
+    }
+
+    function isValidPaymentMethod(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.type is string && (data.type == 'card' || data.type == 'paypal' || data.type == 'gpay')
+        && data.isDefault is bool;
+    }
+
+    function isValidSwipe(data) {
+      return data.profileId is string && data.profileId.size() <= 128
+        && (data.direction == 'left' || data.direction == 'right');
+    }
+
+    function isValidMatch(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.profileId is string && data.profileId.size() <= 128;
+    }
+
+    function isValidChatMessage(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.matchId is string && data.matchId.size() <= 128
+        && data.senderId is string && data.senderId.size() <= 128
+        && data.text is string && data.text.size() <= 5000;
+    }
+
+    // --- COLLECTION PATH MATCH BLOCKS ---
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) && isValidUserProfile(incoming()) 
+                     && incoming().id == existing().id; // ID field is immutable
+      allow delete: if isOwner(userId);
+
+      // Payment Methods Subcollection (Private PII - strictly Owner only)
+      match /payment_methods/{methodId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidPaymentMethod(incoming()) && isValidId(methodId);
+        allow update: if isOwner(userId) && isValidPaymentMethod(incoming()) && incoming().id == existing().id;
+        allow delete: if isOwner(userId);
+      }
+
+      // Swipes Subcollection
+      match /swipes/{swipeId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidSwipe(incoming()) && isValidId(swipeId);
+        allow update: if isOwner(userId) && isValidSwipe(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      // Matches Subcollection
+      match /matches/{matchId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidMatch(incoming()) && isValidId(matchId);
+        allow update: if isOwner(userId) && isValidMatch(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      // Messages Subcollection
+      match /messages/{messageId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidChatMessage(incoming()) && isValidId(messageId);
+        allow update: if isOwner(userId) && isValidChatMessage(incoming());
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
