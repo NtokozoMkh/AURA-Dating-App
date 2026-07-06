@@ -1,0 +1,150 @@
+{
+  "accounts": {
+    "n.s.mkhwebane@gmail.com": {
+      "id": "acc_n.s.mkhwebane@gmail.com",
+      "username": "n.s.mkhwebane@gmail.com",
+      "passwordHash": "12345",
+      "profile": {
+        "id": "user_n.s.mkhwebane@gmail.com_1783329237691",
+        "name": "qwert",
+        "age": 24,
+        "gender": "Female",
+        "lookingFor": "everyone",
+        "bio": "Exploring connections on Aura.",
+        "occupation": "Creative",
+        "interests": [
+          "Coffee",
+          "Design"
+        ],
+        "mbti": "ENFP",
+        "personalityAnswers": {
+          "social": 0,
+          "creative": 0,
+          "planning": 0,
+          "energy": 0,
+          "convention": 0
+        },
+        "isVerified": false,
+        "verificationStatus": "unverified",
+        "avatarUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+        "isPremium": false,
+        "subscriptionPlan": "none",
+        "subscriptionExpiresAt": 0,
+        "blockedUserIds": [],
+        "reportedUserIds": [],
+        "pushNotificationsEnabled": true
+      },
+      "swipes": {},
+      "matches": [],
+      "messages": []
+    },
+    "qwer": {
+      "id": "acc_qwer",
+      "username": "qwer",
+      "passwordHash": "123",
+      "profile": {
+        "id": "user_qwer_1783331076362",
+        "name": "Qwer User",
+        "age": 24,
+        "gender": "Non-binary",
+        "lookingFor": "everyone",
+        "bio": "Exploring connections on Aura.",
+        "occupation": "Professional",
+        "interests": [
+          "Coffee",
+          "Music"
+        ],
+        "mbti": "ENFP",
+        "personalityAnswers": {
+          "social": 0,
+          "creative": 0,
+          "planning": 0,
+          "energy": 0,
+          "convention": 0
+        },
+        "isVerified": false,
+        "verificationStatus": "unverified",
+        "avatarUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+        "isPremium": false,
+        "subscriptionPlan": "none",
+        "subscriptionExpiresAt": 0,
+        "blockedUserIds": [],
+        "reportedUserIds": [],
+        "pushNotificationsEnabled": true
+      },
+      "swipes": {},
+      "matches": [],
+      "messages": []
+    }
+  },
+  "userProfile": {
+    "id": "user",
+    "name": "Alex",
+    "age": 25,
+    "gender": "Non-binary",
+    "lookingFor": "everyone",
+    "bio": "Curious spirit exploring the intersection of art, technology, and good food. Love deep conversations about nothing, early morning walks, and vinyl records.",
+    "occupation": "Product Designer",
+    "interests": [
+      "Design",
+      "Music",
+      "Coffee",
+      "Vinyl",
+      "Reading"
+    ],
+    "mbti": "ENFP",
+    "personalityAnswers": {
+      "social": 2,
+      "creative": 3,
+      "planning": -2,
+      "energy": 1,
+      "convention": -2
+    },
+    "isVerified": false,
+    "verificationStatus": "unverified",
+    "avatarUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+    "isPremium": false,
+    "subscriptionPlan": "none",
+    "subscriptionExpiresAt": 0,
+    "blockedUserIds": [],
+    "reportedUserIds": [],
+    "pushNotificationsEnabled": true
+  },
+  "swipes": {
+    "marcus": "right"
+  },
+  "matches": [
+    {
+      "id": "match_marcus_1783328040572",
+      "profile": {
+        "id": "marcus",
+        "name": "Marcus Vance",
+        "age": 27,
+        "gender": "male",
+        "occupation": "Adventure Photographer",
+        "bio": "Always either editing on a laptop or packing a rucksack. If there is a hiking trail with a panoramic view, I am there. Love dog parks, local vinyl records, and cooking experimental pasta dishes.",
+        "interests": [
+          "Photography",
+          "Hiking",
+          "Vinyl",
+          "Cooking",
+          "Outdoors"
+        ],
+        "mbti": "ENFP",
+        "personalityAnswers": {
+          "social": 4,
+          "creative": 3,
+          "planning": -2,
+          "energy": 3,
+          "convention": -2
+        },
+        "avatarUrl": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80",
+        "isVerified": true,
+        "compatibilityScore": 94,
+        "compatibilityReport": "As fellow ENFPs, Alex and Marcus share a vibrant, open-hearted approach to life that fuels immediate conversational chemistry. With Alex's eye for product design and Marcus's perspective as an adventure photographer, they both find beauty in the finer details of the physical and artistic world. This pairing thrives on mutual curiosity and spontaneous flow, meaning their conversations will effortlessly drift from existential philosophy to the warmth of analog sound. Their shared love for vinyl records and creative exploration acts as a beautiful bridge, creating a space where both feel deeply understood, creatively inspired, and free to be their wonderfully authentic selves.\\n\\nFor a perfect date, they should blend their appreciation for cozy routines and creative experimentation. A morning starting at a local coffee shop, followed by a treasure hunt for rare physical records at a local shop, would set a relaxed, nostalgic mood. Afterward, they could head back to cook an experimental pasta dish together—soundtracked by their new vinyl finds—allowing Marcus to share his culinary creativity while Alex brings their designer's touch to the table."
+      },
+      "matchedAt": 1783328040572
+    }
+  ],
+  "messages": []
+}

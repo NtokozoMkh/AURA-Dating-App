@@ -64,6 +64,17 @@ service cloud.firestore {
 
     // --- COLLECTION PATH MATCH BLOCKS ---
 
+    // Accounts Collection (Used by backend server for authentication and profile indexing)
+    match /accounts/{username} {
+      allow read: if true;
+      allow create, update: if isValidId(username) 
+        && incoming().id is string
+        && incoming().username == username
+        && incoming().passwordHash is string
+        && incoming().profile is map;
+      allow delete: if false; // Accounts should not be deleted through client SDKs
+    }
+
     // Users Collection
     match /users/{userId} {
       allow read: if isSignedIn();

@@ -1,5 +1,20 @@
 {
   "entities": {
+    "UserAccount": {
+      "title": "User Account",
+      "description": "User login credentials, profile data, swipes, matches, and chat messages.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The account's unique identification key" },
+        "username": { "type": "string", "description": "Login username" },
+        "passwordHash": { "type": "string", "description": "Password or hash" },
+        "profile": { "type": "object", "description": "UserProfile nested object" },
+        "swipes": { "type": "object", "description": "Dictionary of swiped profile IDs and swipe direction" },
+        "matches": { "type": "array", "description": "List of match connections" },
+        "messages": { "type": "array", "description": "List of chat messages" }
+      },
+      "required": ["id", "username", "passwordHash", "profile"]
+    },
     "UserProfile": {
       "title": "User Profile",
       "description": "Information about a registered user, their MBTI type, preferences, and premium status.",
@@ -80,6 +95,10 @@
     }
   },
   "firestore": {
+    "/accounts/{username}": {
+      "schema": "UserAccount",
+      "description": "Information about a user account including passwordHash and profiles."
+    },
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Holds the primary profiles of registered users."

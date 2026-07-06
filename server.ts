@@ -15,6 +15,17 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+// Enable CORS middleware to support client requests from external environments (like Vercel)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, x-user-token");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 const httpServer = createHttpServer(app);
 const wss = new WebSocketServer({ noServer: true });
 let viteServer: any = null;
