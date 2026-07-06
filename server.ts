@@ -1169,12 +1169,13 @@ app.post("/api/chat/:matchId", async (req, res) => {
 // 11. WebSocket message routing & connection listeners
 wss.on("connection", (ws) => {
   let currentMatchId: string | null = null;
+  let currentToken: string | null = null;
 
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message.toString());
       if (data.type === "join") {
-        const { matchId } = data;
+        const { matchId, token } = data;
         if (!matchId) return;
 
         // Clean up previous room mapping if any
@@ -1183,6 +1184,7 @@ wss.on("connection", (ws) => {
         }
 
         currentMatchId = matchId;
+        currentToken = token || null;
         if (!matchRooms.has(matchId)) {
           matchRooms.set(matchId, new Set());
         }
@@ -1190,10 +1192,11 @@ wss.on("connection", (ws) => {
 
         // Fetch fresh historical messages and send back to this client
         const db = readDb();
+        const accountContext = getAccountContext(currentToken, db);
         const now = Date.now();
-        const isPremium = db.userProfile.isPremium;
+        const isPremium = accountContext.profile.isPremium;
         const EXPIRY_MS = isPremium ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-        const matchMsgs = db.messages.filter(
+        const matchMsgs = accountContext.messages.filter(
           (msg) => msg.matchId === matchId && now - msg.createdAt < EXPIRY_MS
         );
         matchMsgs.sort((a, b) => a.createdAt - b.createdAt);
@@ -1214,7 +1217,8 @@ wss.on("connection", (ws) => {
         if (!text && !mediaUrl) return;
 
         const db = readDb();
-        const match = db.matches.find((m) => m.id === matchId);
+        const accountContext = getAccountContext(currentToken, db);
+        const match = accountContext.matches.find((m) => m.id === matchId);
         if (!match) return;
 
         const userMsg: ChatMessage = {
@@ -1228,8 +1232,8 @@ wss.on("connection", (ws) => {
           voiceDuration,
         };
 
-        db.messages.push(userMsg);
-        writeDb(db);
+        accountContext.messages.push(userMsg);
+        saveAccountContext(currentToken, accountContext, db);
 
         // Broadcast user message to all clients in the match room
         broadcastToMatch(matchId, { type: "message", message: userMsg });
@@ -1240,10 +1244,11 @@ wss.on("connection", (ws) => {
         // Generate AI response
         const generateAi = async () => {
           const updatedDb = readDb();
+          const updatedContext = getAccountContext(currentToken, updatedDb);
           const target = match.profile;
-          const user = updatedDb.userProfile;
+          const user = updatedContext.profile;
 
-          const matchMsgs = updatedDb.messages.filter((m) => m.matchId === matchId);
+          const matchMsgs = updatedContext.messages.filter((m) => m.matchId === matchId);
           matchMsgs.sort((a, b) => a.createdAt - b.createdAt);
 
           const lastMsgs = matchMsgs.slice(-6);
@@ -1319,6 +1324,7 @@ wss.on("connection", (ws) => {
 
           // Save to db
           const finalDb = readDb();
+          const finalContext = getAccountContext(currentToken, finalDb);
           const matchReply: ChatMessage = {
             id: `msg_match_${Date.now()}`,
             matchId,
@@ -1326,8 +1332,8 @@ wss.on("connection", (ws) => {
             text: responseText,
             createdAt: Date.now(),
           };
-          finalDb.messages.push(matchReply);
-          writeDb(finalDb);
+          finalContext.messages.push(matchReply);
+          saveAccountContext(currentToken, finalContext, finalDb);
 
           // Turn off typing indicator & broadcast message
           broadcastToMatch(matchId, { type: "typing", isTyping: false, senderId: target.id });

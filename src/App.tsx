@@ -532,17 +532,17 @@ export default function App() {
         <div className="absolute top-0 right-0 w-[45vw] h-[45vw] bg-pink-500/5 rounded-full blur-[100px] pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-[45vw] h-[45vw] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
 
-        {/* Top Header Navigation (Mobile Only) */}
-        <header className="lg:hidden bg-white dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 py-3 sm:py-4 px-4 sm:px-6 sticky top-0 z-40 backdrop-blur-md/90 shadow-xs" id="applet-header">
-          <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
-            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-start">
-              <div className="w-8 h-8 sm:w-9 sm:h-9 bg-linear-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-pink-500/10">
-                <Flame className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+        {/* Top Header Navigation (Mobile & Tablet) */}
+        <header className="lg:hidden bg-white dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 py-3 md:py-4 px-4 md:px-6 sticky top-0 z-40 backdrop-blur-md/90 shadow-xs" id="applet-header">
+          <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 md:gap-0">
+            <div className="flex items-center gap-2.5 w-full md:w-auto justify-start">
+              <div className="w-8 h-8 md:w-9 md:h-9 bg-linear-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-pink-500/10">
+                <Flame className="w-4 h-4 md:w-5 md:h-5 fill-current" />
               </div>
               <div className="text-left flex items-center gap-2">
                 <div>
-                  <h1 className="text-base sm:text-lg font-black font-display tracking-tight leading-none bg-linear-to-r from-neutral-900 to-neutral-700 dark:from-white dark:to-neutral-300 bg-clip-text text-transparent">AURA</h1>
-                  <span className="text-[8px] sm:text-[9px] font-bold text-pink-500 tracking-wider uppercase font-mono">Intentional & verified</span>
+                  <h1 className="text-base md:text-lg font-black font-display tracking-tight leading-none bg-linear-to-r from-neutral-900 to-neutral-700 dark:from-white dark:to-neutral-300 bg-clip-text text-transparent">AURA</h1>
+                  <span className="text-[8px] md:text-[9px] font-bold text-pink-500 tracking-wider uppercase font-mono">Intentional & verified</span>
                 </div>
                 {profile?.isPremium && (
                   <span className={`px-1.5 py-0.5 text-[8px] font-mono font-black uppercase rounded tracking-wider ${
@@ -557,18 +557,18 @@ export default function App() {
             </div>
 
             {/* Core App Navigation Controls */}
-            <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-              <div className="grid grid-cols-4 sm:flex sm:items-center gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-2xl w-full sm:w-auto" id="nav-tabs-deck">
+            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+              <div className="grid grid-cols-4 md:flex md:items-center gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-2xl w-full md:w-auto" id="nav-tabs-deck">
                 <button
                   onClick={() => setActiveTab('discover')}
-                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                  className={`px-2 md:px-4 py-2 rounded-xl text-[10px] md:text-xs font-bold transition flex items-center justify-start md:justify-center gap-1 md:gap-1.5 cursor-pointer whitespace-nowrap ${
                     activeTab === 'discover' 
                       ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
                       : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
                   }`}
                   id="tab-discover"
                 >
-                  <Compass className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <Compass className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
                   <span>Discover</span>
                 </button>
                 <button
@@ -578,44 +578,44 @@ export default function App() {
                       setActiveMatchId(matches[0].id);
                     }
                   }}
-                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 relative cursor-pointer whitespace-nowrap ${
+                  className={`px-2 md:px-4 py-2 rounded-xl text-[10px] md:text-xs font-bold transition flex items-center justify-start md:justify-center gap-1 md:gap-1.5 relative cursor-pointer whitespace-nowrap ${
                     activeTab === 'chats' 
                       ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
                       : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
                   }`}
                   id="tab-chats"
                 >
-                  <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
                   <span>Chats</span>
                   {matches.length > 0 && (
-                    <span className="absolute top-1.5 right-1.5 sm:top-1 sm:right-1 w-2 h-2 bg-pink-500 rounded-full" />
+                    <span className="absolute top-1.5 right-1.5 md:top-1 md:right-1 w-2 h-2 bg-pink-500 rounded-full" />
                   )}
                 </button>
                 <button
                   onClick={() => setActiveTab('verify')}
-                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                  className={`px-2 md:px-4 py-2 rounded-xl text-[10px] md:text-xs font-bold transition flex items-center justify-start md:justify-center gap-1 md:gap-1.5 cursor-pointer whitespace-nowrap ${
                     activeTab === 'verify' 
                       ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
                       : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
                   }`}
                   id="tab-verify"
                 >
-                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <ShieldCheck className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
                   <span>Verify</span>
                   {profile?.isVerified && (
-                    <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-500 fill-current shrink-0" />
+                    <CheckCircle className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-500 fill-current shrink-0" />
                   )}
                 </button>
                 <button
                   onClick={() => setActiveTab('profile')}
-                  className={`px-2 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition flex items-center justify-start sm:justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                  className={`px-2 md:px-4 py-2 rounded-xl text-[10px] md:text-xs font-bold transition flex items-center justify-start md:justify-center gap-1 md:gap-1.5 cursor-pointer whitespace-nowrap ${
                     activeTab === 'profile' 
                       ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm' 
                       : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
                   }`}
                   id="tab-profile"
                 >
-                  <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <User className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
                   <span>Profile</span>
                 </button>
               </div>
@@ -623,7 +623,7 @@ export default function App() {
               {/* Header Theme Toggle */}
               <button
                 onClick={() => setDarkMode(!darkMode)}
-                className="hidden sm:block p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
+                className="hidden md:block p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
                 title="Toggle Theme"
               >
                 {darkMode ? (
@@ -635,7 +635,7 @@ export default function App() {
 
               <button
                 onClick={handleSignOut}
-                className="hidden sm:flex items-center justify-center p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
+                className="hidden md:flex items-center justify-center p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded-xl transition cursor-pointer"
                 title="Sign Out"
               >
                 <LogOut className="w-4.5 h-4.5" />
