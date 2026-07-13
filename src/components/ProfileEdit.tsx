@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface ProfileEditProps {
   profile: UserProfile;
-  onUpdate: (updated: Partial<UserProfile>) => void;
+  onUpdate: (updated: Partial<UserProfile>) => Promise<{ success: boolean; error?: string } | undefined> | void;
   onResetDb: () => void;
   onSignOut?: () => void;
   darkMode: boolean;
@@ -186,6 +186,7 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
 
   const [formData, setFormData] = useState({
     name: profile.name,
+    username: profile.username || localStorage.getItem('aura_username') || '',
     age: profile.age,
     gender: profile.gender,
     lookingFor: profile.lookingFor,
@@ -193,6 +194,21 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
     occupation: profile.occupation,
     interests: profile.interests.join(', '),
   });
+
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFormData({
+      name: profile.name,
+      username: profile.username || localStorage.getItem('aura_username') || '',
+      age: profile.age,
+      gender: profile.gender,
+      lookingFor: profile.lookingFor,
+      bio: profile.bio,
+      occupation: profile.occupation,
+      interests: profile.interests.join(', '),
+    });
+  }, [profile]);
 
   const [answers, setAnswers] = useState<number[]>([
     profile.personalityAnswers.social ?? 0,
@@ -223,6 +239,10 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
     setAnswers(updated);
   };
 
+  const handleResetSliders = () => {
+    setAnswers([0, 0, 0, 0, 0]);
+  };
+
   // Derive MBTI type from personality sliders
   const deriveMbti = (ans: number[]) => {
     const i_e = ans[0] >= 0 ? 'E' : 'I';
@@ -232,14 +252,82 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
     return `${i_e}${s_n}${t_f}${j_p}`;
   };
 
+  const getMbtiInsight = (mbti: string) => {
+    const insights: { [key: string]: { title: string; desc: string; match: string; color: string } } = {
+      'INFJ': {
+        title: "The Advocate",
+        desc: "Deeply thoughtful, compassionate, and imaginative. You value profound authenticity, artistic alignments, and long-term meaningful connections.",
+        match: "Pairs beautifully with ENFPs and ENFJs for deep intellectual and soul-level synergy.",
+        color: "from-purple-500 to-indigo-500"
+      },
+      'ENFP': {
+        title: "The Campaigner",
+        desc: "Enthusiastic, creative, and highly social. You bring infectious positive energy, spontaneous fun, and endless curiosity to every conversation.",
+        match: "Pairs beautifully with INFJs and INTJs for a perfect balance of imagination and depth.",
+        color: "from-pink-500 to-rose-500"
+      },
+      'INTJ': {
+        title: "The Architect",
+        desc: "Strategic, analytical, and deeply independent. You align with intense intellectual sparks, shared drive, and deep-dive discussions on complex ideas.",
+        match: "Pairs beautifully with ENFPs and ENFJs who appreciate your deep intellectual drive.",
+        color: "from-sky-500 to-blue-600"
+      },
+      'ESFP': {
+        title: "The Performer",
+        desc: "Vibrant, hands-on, and full of life. You love living in the moment, sharing spontaneous outdoor adventures, music, and beautiful sensory discoveries.",
+        match: "Pairs beautifully with ISFJs and ISTJs who ground your adventurous, energetic spirit.",
+        color: "from-amber-400 to-orange-500"
+      },
+      'ENFJ': {
+        title: "The Protagonist",
+        desc: "Charismatic, empathetic, and inspiring. You naturally lift others up and actively seek partners who value personal growth, mutual encouragement, and warmth.",
+        match: "Pairs beautifully with INFPs and INTPs for deep emotional and idealistic synergy.",
+        color: "from-teal-500 to-emerald-500"
+      },
+      'INFP': {
+        title: "The Mediator",
+        desc: "Poetic, kind-hearted, and idealistic. You search for quiet, authentic, and soulful intimacy where creativity and deep inner values can safely bloom.",
+        match: "Pairs beautifully with ENFJs and ENTJs who cherish your kind and visionary nature.",
+        color: "from-fuchsia-500 to-pink-500"
+      },
+      'ESTP': {
+        title: "The Entrepreneur",
+        desc: "Thrill-seeking, energetic, and highly actionable. You thrive on immediate challenges, active sports, and spontaneous adventures without rigid constraints.",
+        match: "Pairs beautifully with ISFJs and ISTJs for shared dynamic action and real-world stability.",
+        color: "from-red-400 to-rose-500"
+      },
+      'ISTJ': {
+        title: "The Inspector",
+        desc: "Reliable, methodical, and respectful of tradition. You cherish integrity, calm stability, clear organizational plans, and dedicated family or life goals.",
+        match: "Pairs beautifully with ESFPs and ESTPs who bring dynamic playfulness to your grounded style.",
+        color: "from-neutral-500 to-slate-600"
+      },
+      'INFPs': {
+        title: "The Mediator",
+        desc: "Creative, sensitive, and deeply empathetic. You search for deep emotional ties and creative minds.",
+        match: "Pairs beautifully with ENFJs.",
+        color: "from-fuchsia-500 to-pink-500"
+      }
+    };
+    
+    return insights[mbti] || {
+      title: "The Aligned Explorer",
+      desc: "A rare and highly adaptive personality archetype. You possess a unique balance of traits that allows you to easily understand and align with diverse minds.",
+      match: "Pairs beautifully with standard personalities looking for a versatile and open-minded partner.",
+      color: "from-pink-500 to-violet-600"
+    };
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaveStatus('saving');
+    setUsernameError(null);
 
     const mbti = deriveMbti(answers);
 
     const updatedProfile: Partial<UserProfile> = {
       name: formData.name,
+      username: formData.username.toLowerCase().trim().replace(/^@/, ''),
       age: Number(formData.age),
       gender: formData.gender,
       lookingFor: formData.lookingFor,
@@ -257,12 +345,17 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
       }
     };
 
-    onUpdate(updatedProfile);
+    const result = await onUpdate(updatedProfile);
 
-    setTimeout(() => {
-      setSaveStatus('saved');
-      setTimeout(() => setSaveStatus('idle'), 2000);
-    }, 800000 / 1000000 ? 500 : 500); // quick delay
+    if (result && !result.success) {
+      setSaveStatus('idle');
+      setUsernameError(result.error || "Failed to update profile.");
+    } else {
+      setTimeout(() => {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      }, 500);
+    }
   };
 
   return (
@@ -303,6 +396,7 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
             <h2 className="text-2xl font-bold font-display text-neutral-900 dark:text-neutral-100" id="profile-user-name">{profile.name}, {profile.age}</h2>
             <span className="px-2.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 rounded-full text-xs font-mono font-medium" id="profile-mbti-tag">{profile.mbti}</span>
           </div>
+          <p className="text-xs text-pink-500 font-mono font-medium" id="profile-user-handle">@{profile.username || localStorage.getItem('aura_username') || 'username'}</p>
           <p className="text-neutral-500 dark:text-neutral-400 text-sm" id="profile-user-role">{profile.occupation || "Product Designer"}</p>
           <div className="flex flex-wrap justify-center md:justify-start gap-1.5 pt-2" id="profile-interests-wrap">
             {profile.interests.map((interest, idx) => (
@@ -1215,6 +1309,27 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
             </div>
 
             <div className="space-y-1.5 text-left">
+              <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Username handle</label>
+              <div className="relative">
+                <span className="absolute left-4 top-2.5 text-neutral-400 dark:text-neutral-500 text-sm font-mono">@</span>
+                <input
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => {
+                    setUsernameError(null);
+                    setFormData({ ...formData, username: e.target.value });
+                  }}
+                  className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm bg-neutral-50/50 dark:bg-neutral-800 dark:text-neutral-100 font-mono"
+                  required
+                  id="profile-input-username"
+                />
+              </div>
+              {usernameError && (
+                <p className="text-xs font-semibold text-red-500 dark:text-red-400 mt-1">{usernameError}</p>
+              )}
+            </div>
+
+            <div className="space-y-1.5 text-left">
               <label className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Age</label>
               <input
                 type="number"
@@ -1303,45 +1418,120 @@ export default function ProfileEdit({ profile, onUpdate, onResetDb, onSignOut, d
 
         {/* Personality quiz sliders */}
         <div className="bg-white dark:bg-neutral-900 rounded-3xl p-6 border border-neutral-100 dark:border-neutral-800 shadow-sm space-y-6" id="profile-sliders-section">
-          <div className="flex justify-between items-center border-b border-neutral-100 dark:border-neutral-800 pb-3 mb-2">
+          <div className="flex justify-between items-center border-b border-neutral-100 dark:border-neutral-800 pb-3">
             <div className="flex items-center gap-2">
               <Sliders className="w-5 h-5 text-pink-500" />
               <h3 className="text-lg font-bold font-display text-neutral-900 dark:text-neutral-100">Aura Personality Quiz</h3>
             </div>
-            <span className="px-2 py-0.5 bg-pink-50 dark:bg-pink-950/30 text-pink-600 dark:text-pink-400 rounded-full text-[11px] font-mono font-bold" id="profile-current-mbti-preview">
-              Result: {deriveMbti(answers)}
-            </span>
+            <button
+              type="button"
+              onClick={handleResetSliders}
+              className="px-2.5 py-1 text-[11px] text-neutral-500 hover:text-pink-600 dark:text-neutral-400 dark:hover:text-pink-400 font-semibold border border-neutral-200 dark:border-neutral-700 hover:border-pink-500/30 rounded-xl transition flex items-center gap-1 cursor-pointer"
+              id="profile-reset-sliders-btn"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset Quiz
+            </button>
           </div>
 
           <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
             Our match engine computes mathematical similarity based on these sliders to align you with people of similar (or perfectly contrasting) mindsets.
           </p>
 
-          <div className="space-y-6" id="personality-questions-list">
-            {questions.map((q, idx) => (
-              <div key={idx} className="space-y-2 text-left">
-                <div className="flex justify-between text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-                  <span>{q.label}</span>
-                  <span className="font-mono text-[10px] bg-neutral-100 dark:bg-neutral-850 px-1.5 py-0.5 rounded text-neutral-500 dark:text-neutral-400">
-                    {answers[idx] > 0 ? `+${answers[idx]}` : answers[idx]}
+          {/* Live MBTI Insight Panel */}
+          {(() => {
+            const currentMbti = deriveMbti(answers);
+            const insight = getMbtiInsight(currentMbti);
+            return (
+              <div className={`rounded-2xl p-5 bg-linear-to-br ${insight.color} text-white shadow-xs space-y-3 transition-all duration-300`} id="profile-mbti-insight-panel">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-white animate-pulse" />
+                  <span className="text-xs uppercase font-mono tracking-widest font-bold opacity-80">Aura Archetype Discovery</span>
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-xl font-black font-display tracking-tight flex items-center gap-2">
+                    {currentMbti} — {insight.title}
+                  </h4>
+                  <p className="text-xs leading-relaxed font-medium opacity-90">
+                    {insight.desc}
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-white/20 flex items-start gap-1.5 text-[11px] leading-relaxed opacity-95">
+                  <Heart className="w-3.5 h-3.5 shrink-0 mt-0.5 fill-current" />
+                  <span>
+                    <strong className="font-semibold">Compatibility Match: </strong>{insight.match}
                   </span>
                 </div>
-                
-                <input
-                  type="range"
-                  min="-5"
-                  max="5"
-                  value={answers[idx]}
-                  onChange={(e) => handleSliderChange(idx, Number(e.target.value))}
-                  className="w-full accent-pink-500 h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-lg appearance-none cursor-pointer"
-                />
-                
-                <div className="flex justify-between text-[10px] text-neutral-400 dark:text-neutral-500 font-medium">
-                  <span className={answers[idx] < 0 ? "text-pink-600 dark:text-pink-400 font-bold" : ""}>{q.left}</span>
-                  <span className={answers[idx] > 0 ? "text-pink-600 dark:text-pink-400 font-bold" : ""}>{q.right}</span>
-                </div>
               </div>
-            ))}
+            );
+          })()}
+
+          {/* List of Custom interactive sliders */}
+          <div className="space-y-6" id="personality-questions-list">
+            {questions.map((q, idx) => {
+              const val = answers[idx];
+              // Calculate percentages for highlight (-5 to 5 maps to 0 to 100)
+              const pct = ((val + 5) / 10) * 100;
+              return (
+                <div key={idx} className="bg-neutral-50/50 dark:bg-neutral-800/40 p-4.5 rounded-2xl border border-neutral-100/50 dark:border-neutral-800/50 space-y-3 text-left">
+                  <div className="flex justify-between items-center text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                    <span className="text-sm font-display tracking-tight text-neutral-800 dark:text-neutral-250">{q.label}</span>
+                    <span className="font-mono text-[10px] bg-pink-50 dark:bg-pink-950/40 px-2 py-0.5 rounded-full text-pink-700 dark:text-pink-300">
+                      {val > 0 ? `+${val}` : val === 0 ? "Balanced" : val}
+                    </span>
+                  </div>
+                  
+                  <div className="relative flex items-center h-6">
+                    {/* Background Bar */}
+                    <div className="absolute left-0 right-0 h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
+                      {/* Dynamic middle anchor highlight */}
+                      <div 
+                        className="absolute top-0 bottom-0 bg-linear-to-r from-purple-500 to-pink-500 transition-all duration-150"
+                        style={{
+                          left: val < 0 ? `${pct}%` : "50%",
+                          right: val >= 0 ? `${100 - pct}%` : "50%"
+                        }}
+                      />
+                    </div>
+                    {/* Zero-point indicator */}
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-3 bg-neutral-400 dark:bg-neutral-600 rounded-full pointer-events-none" />
+                    
+                    <input
+                      type="range"
+                      min="-5"
+                      max="5"
+                      value={val}
+                      onChange={(e) => handleSliderChange(idx, Number(e.target.value))}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer accent-transparent z-10"
+                    />
+                    {/* Custom visible handle */}
+                    <div 
+                      className="absolute w-5 h-5 bg-white dark:bg-neutral-100 border-2 border-pink-500 rounded-full shadow-xs pointer-events-none transition-all duration-150 flex items-center justify-center -translate-x-1/2"
+                      style={{ left: `${pct}%`, top: "calc(50% - 10px)" }}
+                    >
+                      <div className="w-1.5 h-1.5 bg-pink-500 rounded-full" />
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-between text-xs text-neutral-500 dark:text-neutral-400 font-medium select-none">
+                    <button
+                      type="button"
+                      onClick={() => handleSliderChange(idx, -5)}
+                      className={`text-left max-w-[45%] transition duration-150 hover:text-pink-500 cursor-pointer ${val < 0 ? "text-pink-600 dark:text-pink-400 font-bold scale-[1.02]" : ""}`}
+                    >
+                      {q.left}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSliderChange(idx, 5)}
+                      className={`text-right max-w-[45%] transition duration-150 hover:text-pink-500 cursor-pointer ${val > 0 ? "text-pink-600 dark:text-pink-400 font-bold scale-[1.02]" : ""}`}
+                    >
+                      {q.right}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

@@ -6,7 +6,7 @@ import SwipeCard from './components/SwipeCard';
 import ChatRoom from './components/ChatRoom';
 import AuthScreen from './components/AuthScreen';
 import SplashScreen from './components/SplashScreen';
-import { Sparkles, MessageSquare, ShieldCheck, User, Compass, CheckCircle, Heart, Star, Flame, Loader2, RotateCcw, LogOut, Sun, Moon, Bell, ShieldAlert, Shield, X } from 'lucide-react';
+import { Sparkles, MessageSquare, ShieldCheck, User, Compass, CheckCircle, Heart, Star, Flame, Loader2, RotateCcw, LogOut, Sun, Moon, Bell, ShieldAlert, Shield, X, Search, Filter, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
@@ -144,6 +144,106 @@ export default function App() {
   const [matchOverlay, setMatchOverlay] = useState<Match | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // States for user search
+  const [discoverMode, setDiscoverMode] = useState<'swipe' | 'search'>('swipe');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchGender, setSearchGender] = useState('everyone');
+  const [searchMbti, setSearchMbti] = useState('');
+  const [searchInterest, setSearchInterest] = useState('');
+  const [searchResults, setSearchResults] = useState<(MatchProfile & { swiped?: 'left' | 'right' | null })[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedSearchProfile, setSelectedSearchProfile] = useState<MatchProfile | null>(null);
+  const [searchCompatibilityReport, setSearchCompatibilityReport] = useState<string | null>(null);
+  const [searchIcebreakers, setSearchIcebreakers] = useState<string[]>([]);
+  const [searchReportState, setSearchReportState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
+
+  const handleSearch = async () => {
+    if (!token) return;
+    setIsSearching(true);
+    try {
+      const params = new URLSearchParams();
+      if (searchQuery) params.append('q', searchQuery);
+      if (searchGender && searchGender !== 'everyone') params.append('gender', searchGender);
+      if (searchMbti) params.append('mbti', searchMbti);
+      if (searchInterest) params.append('interest', searchInterest);
+
+      const res = await fetch(`/api/search?${params.toString()}`, {
+        headers: { 'x-user-token': token }
+      });
+      if (res.ok) {
+        setSearchResults(await res.json());
+      }
+    } catch (err) {
+      console.error("Error searching users:", err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Run search query in real-time as filters or text change
+  useEffect(() => {
+    if (activeTab === 'discover' && discoverMode === 'search' && token) {
+      const delayDebounce = setTimeout(() => {
+        handleSearch();
+      }, 300);
+      return () => clearTimeout(delayDebounce);
+    }
+  }, [searchQuery, searchGender, searchMbti, searchInterest, discoverMode, activeTab, token]);
+
+  const handleSearchConnect = async (cardId: string, direction: 'left' | 'right') => {
+    if (!token) return;
+    
+    // Update local search results state optimistically
+    setSearchResults(prev => prev.map(p => p.id === cardId ? { ...p, swiped: direction } : p));
+    
+    // Also remove from matching card deck if present so they do not see it there
+    setCards(prev => prev.filter(c => c.id !== cardId));
+
+    try {
+      const res = await fetch('/api/swipe', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-token': token
+        },
+        body: JSON.stringify({ profileId: cardId, direction })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.isMatch && data.match) {
+          // Trigger match modal overlay
+          setMatchOverlay(data.match);
+          
+          // Reload matches list
+          const mRes = await fetch('/api/matches', {
+            headers: { 'x-user-token': token }
+          });
+          if (mRes.ok) setMatches(await mRes.json());
+        }
+      }
+    } catch (err) {
+      console.error("Error swiping from search:", err);
+    }
+  };
+
+  const fetchSearchCompatibilityReport = async (matchId: string) => {
+    setSearchReportState('loading');
+    setSearchCompatibilityReport(null);
+    setSearchIcebreakers([]);
+    try {
+      const res = await fetch(`/api/compatibility/${matchId}`);
+      if (!res.ok) throw new Error("Failed to load report");
+      const data = await res.json();
+      
+      setSearchCompatibilityReport(data.report);
+      setSearchIcebreakers(data.icebreakers || []);
+      setSearchReportState('success');
+    } catch (err) {
+      console.error(err);
+      setSearchReportState('failed');
+    }
+  };
+
   // Fetch initial applet state
   const fetchState = async (authToken = token) => {
     if (!authToken) {
@@ -195,7 +295,7 @@ export default function App() {
 
   // Update profile handler
   const handleUpdateProfile = async (updated: Partial<UserProfile>) => {
-    if (!token) return;
+    if (!token) return { success: false, error: "Not authenticated" };
     try {
       const res = await fetch('/api/profile', {
         method: 'POST',
@@ -208,14 +308,28 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setProfile(data);
+        let currentToken = token;
+        if (data.token) {
+          localStorage.setItem('aura_token', data.token);
+          setToken(data.token);
+          currentToken = data.token;
+        }
+        if (data.username) {
+          localStorage.setItem('aura_username', data.username);
+        }
         // Refresh matching cards since profile MBTI changed
         const cardsRes = await fetch('/api/cards', {
-          headers: { 'x-user-token': token }
+          headers: { 'x-user-token': currentToken }
         });
         if (cardsRes.ok) setCards(await cardsRes.json());
+        return { success: true };
+      } else {
+        const errData = await res.json();
+        return { success: false, error: errData.error || "Failed to update profile." };
       }
     } catch (err) {
       console.error("Error updating profile:", err);
+      return { success: false, error: "Connection error. Please try again." };
     }
   };
 
@@ -655,32 +769,452 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               className="space-y-6"
             >
-              {cards.length > 0 ? (
-                <SwipeCard
-                  card={cards[0]}
-                  onSwipe={(direction) => handleSwipe(cards[0].id, direction)}
-                  onStartChatWithIcebreaker={handleStartChatWithIcebreaker}
-                  onBlockUser={handleUserBlockedOrReported}
-                />
-              ) : (
-                <div className="max-w-md mx-auto text-center py-16 px-6 bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-3xl shadow-sm space-y-4">
-                  <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-850 text-neutral-400 dark:text-neutral-500 rounded-full flex items-center justify-center mx-auto">
-                    <Sparkles className="w-8 h-8 stroke-1" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="text-base font-bold font-display text-neutral-900 dark:text-neutral-100">Deck Exhausted</h3>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                      You have reviewed all compatible profiles near you. Try modifying your slider quiz parameters in <strong className="text-neutral-800 dark:text-neutral-200">My Profile</strong> to discover new aligned connections!
-                    </p>
-                  </div>
+              {/* Discovery Mode Switcher Toggle */}
+              <div className="flex justify-center max-w-md mx-auto" id="discover-mode-toggle-container">
+                <div className="bg-neutral-150 dark:bg-neutral-800/80 p-1 rounded-2xl flex w-full border border-neutral-200/30 dark:border-neutral-700/30 shadow-xs">
                   <button
-                    onClick={() => setActiveTab('profile')}
-                    className="px-5 py-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-medium rounded-xl text-xs transition cursor-pointer"
+                    onClick={() => setDiscoverMode('swipe')}
+                    className={`flex-grow py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      discoverMode === 'swipe'
+                        ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm'
+                        : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+                    }`}
+                    id="discover-mode-swipe-btn"
                   >
-                    Adjust Quiz Parameters
+                    <Sparkles className="w-3.5 h-3.5 text-pink-500 fill-current animate-pulse" />
+                    <span>Spark Swiper</span>
+                  </button>
+                  <button
+                    onClick={() => setDiscoverMode('search')}
+                    className={`flex-grow py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      discoverMode === 'search'
+                        ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm'
+                        : 'text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+                    }`}
+                    id="discover-mode-search-btn"
+                  >
+                    <Search className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Explore & Search</span>
                   </button>
                 </div>
+              </div>
+
+              {discoverMode === 'swipe' ? (
+                /* Classic Swiper View */
+                cards.length > 0 ? (
+                  <SwipeCard
+                    card={cards[0]}
+                    onSwipe={(direction) => handleSwipe(cards[0].id, direction)}
+                    onStartChatWithIcebreaker={handleStartChatWithIcebreaker}
+                    onBlockUser={handleUserBlockedOrReported}
+                  />
+                ) : (
+                  <div className="max-w-md mx-auto text-center py-16 px-6 bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-3xl shadow-sm space-y-4">
+                    <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-850 text-neutral-400 dark:text-neutral-500 rounded-full flex items-center justify-center mx-auto">
+                      <Sparkles className="w-8 h-8 stroke-1" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-base font-bold font-display text-neutral-900 dark:text-neutral-100">Deck Exhausted</h3>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                        You have reviewed all compatible profiles near you. Try modifying your slider quiz parameters in <strong className="text-neutral-800 dark:text-neutral-200">My Profile</strong> to discover new aligned connections!
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('profile')}
+                      className="px-5 py-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-medium rounded-xl text-xs transition cursor-pointer"
+                    >
+                      Adjust Quiz Parameters
+                    </button>
+                  </div>
+                )
+              ) : (
+                /* Enhanced Explore & Search View */
+                <div className="space-y-6" id="search-explorer-workspace">
+                  {/* Search and Filters Hub */}
+                  <div className="bg-white dark:bg-neutral-900 rounded-3xl p-5 border border-neutral-100 dark:border-neutral-800 shadow-xs space-y-4">
+                    <div className="flex flex-col md:flex-row gap-3">
+                      {/* Search Bar */}
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-neutral-400 dark:text-neutral-500" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search users by name, bio, occupation, or tag..."
+                          className="w-full pl-10 pr-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm bg-neutral-50/50 dark:bg-neutral-800 dark:text-neutral-100"
+                          id="search-input-field"
+                        />
+                      </div>
+
+                      {/* Interest Quick Filter Tag */}
+                      <div className="relative md:w-64">
+                        <Filter className="absolute left-3.5 top-3.5 w-4 h-4 text-neutral-400 dark:text-neutral-500" />
+                        <input
+                          type="text"
+                          value={searchInterest}
+                          onChange={(e) => setSearchInterest(e.target.value)}
+                          placeholder="Filter interest (e.g. Chess)"
+                          className="w-full pl-10 pr-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm bg-neutral-50/50 dark:bg-neutral-800 dark:text-neutral-100"
+                          id="search-interest-field"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Horizontal Select Filters */}
+                    <div className="flex flex-wrap gap-4 pt-1 items-center justify-between">
+                      <div className="flex flex-wrap gap-4">
+                        {/* Gender Filter */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-neutral-400 dark:text-neutral-500">Gender:</span>
+                          <select
+                            value={searchGender}
+                            onChange={(e) => setSearchGender(e.target.value)}
+                            className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 focus:outline-none focus:border-indigo-500 text-xs bg-neutral-50 dark:bg-neutral-800 dark:text-neutral-100 font-medium"
+                            id="search-gender-select"
+                          >
+                            <option value="everyone">Everyone</option>
+                            <option value="female">Women</option>
+                            <option value="male">Men</option>
+                          </select>
+                        </div>
+
+                        {/* MBTI Filter */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-neutral-400 dark:text-neutral-500">MBTI:</span>
+                          <select
+                            value={searchMbti}
+                            onChange={(e) => setSearchMbti(e.target.value)}
+                            className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 focus:outline-none focus:border-indigo-500 text-xs bg-neutral-50 dark:bg-neutral-800 dark:text-neutral-100 font-medium"
+                            id="search-mbti-select"
+                          >
+                            <option value="">All Archetypes</option>
+                            <option value="INFJ">INFJ (Advocate)</option>
+                            <option value="ENFP">ENFP (Campaigner)</option>
+                            <option value="INTJ">INTJ (Architect)</option>
+                            <option value="ESFP">ESFP (Performer)</option>
+                            <option value="INFP">INFP (Mediator)</option>
+                            <option value="ENFJ">ENFJ (Protagonist)</option>
+                            <option value="ESTP">ESTP (Entrepreneur)</option>
+                            <option value="ISTJ">ISTJ (Inspector)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Hot Tags Shortcut */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider font-mono mr-1">Trending:</span>
+                        {['Reading', 'Chess', 'Photography', 'Cooking', 'Music'].map((tag) => (
+                          <button
+                            key={tag}
+                            onClick={() => setSearchInterest(searchInterest === tag ? '' : tag)}
+                            className={`px-2.5 py-1 text-[10px] rounded-lg border font-semibold transition cursor-pointer ${
+                              searchInterest === tag
+                                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border-indigo-200'
+                                : 'bg-neutral-50 hover:bg-neutral-100 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-500 dark:text-neutral-400 border-neutral-150 dark:border-neutral-750'
+                            }`}
+                          >
+                            #{tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Results Container */}
+                  {isSearching ? (
+                    /* Pulsing Skeleton Loaders */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full" id="search-shimmer-grid">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-3xl p-5 space-y-4 animate-pulse">
+                          <div className="aspect-[4/3] bg-neutral-150 dark:bg-neutral-800 rounded-2xl w-full" />
+                          <div className="h-4 bg-neutral-150 dark:bg-neutral-800 rounded-full w-2/3" />
+                          <div className="h-3 bg-neutral-100 dark:bg-neutral-850 rounded-full w-1/2" />
+                          <div className="flex gap-2">
+                            <div className="h-6 bg-neutral-100 dark:bg-neutral-850 rounded-full w-16" />
+                            <div className="h-6 bg-neutral-100 dark:bg-neutral-850 rounded-full w-16" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : searchResults.length > 0 ? (
+                    /* Search results Grid of beautiful cards */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6" id="search-results-deck">
+                      {searchResults.map((user) => {
+                        const isMatch = matches.some((m) => m.profile.id === user.id);
+                        return (
+                          <div
+                            key={user.id}
+                            className="group bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-3xl p-5 shadow-xs hover:shadow-md hover:border-neutral-200/50 dark:hover:border-neutral-700/50 transition duration-300 flex flex-col text-left space-y-4 relative"
+                          >
+                            {/* Card Header with image */}
+                            <div className="relative aspect-[4/3] rounded-2xl overflow-hidden cursor-pointer" onClick={() => { setSelectedSearchProfile(user); fetchSearchCompatibilityReport(user.id); }}>
+                              <img
+                                src={user.avatarUrl}
+                                alt={user.name}
+                                className="w-full h-full object-cover group-hover:scale-[1.03] transition duration-500"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                              
+                              {/* Match Score Badge */}
+                              <div className="absolute top-3 right-3 bg-white/95 dark:bg-neutral-900/95 backdrop-blur px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs border border-pink-50/50 dark:border-pink-950/20">
+                                <Sparkles className="w-3 h-3 text-pink-500 fill-current" />
+                                <span className="text-[10px] font-black font-mono text-pink-600 dark:text-pink-400">{user.compatibilityScore || 85}% Match</span>
+                              </div>
+
+                              {/* Verified User and MBTI badge */}
+                              <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+                                <span className="text-white text-base font-black font-display tracking-tight drop-shadow-sm">{user.name}, {user.age}</span>
+                                {user.isVerified && <CheckCircle className="w-4 h-4 text-blue-400 fill-current" />}
+                              </div>
+                            </div>
+
+                            {/* Card Content */}
+                            <div className="flex-grow space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 px-2 py-0.5 rounded-md font-mono">{user.mbti} Archetype</span>
+                                <span className="text-xs text-neutral-400 dark:text-neutral-500 font-medium truncate max-w-[150px]">{user.occupation}</span>
+                              </div>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-2 leading-relaxed h-8">
+                                {user.bio}
+                              </p>
+
+                              {/* Tag highlighting */}
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                {user.interests.map((interest, idx) => {
+                                  const isSearched = searchInterest && interest.toLowerCase().includes(searchInterest.toLowerCase());
+                                  return (
+                                    <span
+                                      key={idx}
+                                      className={`px-2 py-0.5 text-[10px] rounded-lg font-medium border transition ${
+                                        isSearched
+                                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200'
+                                          : 'bg-neutral-50 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border-transparent'
+                                      }`}
+                                    >
+                                      #{interest}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Card Action Buttons */}
+                            <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between gap-2">
+                              <button
+                                onClick={() => { setSelectedSearchProfile(user); fetchSearchCompatibilityReport(user.id); }}
+                                className="px-3.5 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-700 dark:text-neutral-300 text-xs font-bold rounded-xl transition cursor-pointer flex-grow text-center"
+                              >
+                                View Insights
+                              </button>
+
+                              {isMatch ? (
+                                <button
+                                  onClick={() => {
+                                    const m = matches.find((match) => match.profile.id === user.id);
+                                    if (m) {
+                                      setActiveTab('chats');
+                                      setActiveMatchId(m.id);
+                                    }
+                                  }}
+                                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1 shrink-0"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  Chat
+                                </button>
+                              ) : user.swiped === 'right' ? (
+                                <span className="px-3 py-2 text-pink-500 bg-pink-50 dark:bg-pink-950/20 text-xs font-bold rounded-xl flex items-center gap-1">
+                                  <Heart className="w-3.5 h-3.5 fill-current animate-pulse" />
+                                  Liked
+                                </span>
+                              ) : user.swiped === 'left' ? (
+                                <span className="px-3 py-2 text-neutral-400 bg-neutral-50 dark:bg-neutral-850 text-xs font-bold rounded-xl">
+                                  Passed
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleSearchConnect(user.id, 'right')}
+                                  className="px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1 shrink-0 shadow-xs hover:shadow-md"
+                                  title="Send a Spark to connect!"
+                                >
+                                  <Heart className="w-3.5 h-3.5" />
+                                  Connect
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* Search results are empty */
+                    <div className="max-w-md mx-auto text-center py-16 px-6 bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 rounded-3xl shadow-sm space-y-4" id="search-empty-state">
+                      <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-850 text-neutral-400 dark:text-neutral-500 rounded-full flex items-center justify-center mx-auto">
+                        <Search className="w-7 h-7 stroke-1" />
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="text-base font-bold font-display text-neutral-900 dark:text-neutral-100">No Aligned Minds Found</h3>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                          We could not find any available profiles matching those parameters. Try clearing your search text or choosing other MBTI archetypes.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => { setSearchQuery(''); setSearchMbti(''); setSearchInterest(''); }}
+                        className="px-5 py-2.5 bg-neutral-900 dark:bg-neutral-100 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-medium rounded-xl text-xs transition cursor-pointer"
+                      >
+                        Reset All Filters
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
+
+              {/* Advanced Interactive Profile Discovery Modal overlay */}
+              <AnimatePresence>
+                {selectedSearchProfile && (
+                  <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto" id="search-detail-modal-overlay">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col my-8 max-h-[85vh]"
+                    >
+                      {/* Image header with close button */}
+                      <div className="relative aspect-[4/3] overflow-hidden shrink-0">
+                        <img
+                          src={selectedSearchProfile.avatarUrl}
+                          alt={selectedSearchProfile.name}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+                        
+                        {/* Close button */}
+                        <button
+                          onClick={() => setSelectedSearchProfile(null)}
+                          className="absolute top-4 right-4 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+
+                        <div className="absolute top-4 left-4 bg-pink-500 text-white text-[11px] font-black font-mono px-3 py-1.5 rounded-xl shadow-xs border border-pink-400/20">
+                          {selectedSearchProfile.compatibilityScore}% Synergy
+                        </div>
+
+                        {/* Name label */}
+                        <div className="absolute bottom-4 left-5 text-white text-left space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <h3 className="text-2xl font-black font-display tracking-tight">{selectedSearchProfile.name}, {selectedSearchProfile.age}</h3>
+                            {selectedSearchProfile.isVerified && <CheckCircle className="w-5 h-5 text-blue-400 fill-current" />}
+                          </div>
+                          <p className="text-xs text-neutral-300 font-medium font-mono">{selectedSearchProfile.mbti} Archetype • {selectedSearchProfile.occupation}</p>
+                        </div>
+                      </div>
+
+                      {/* Modal Content - Scrollable */}
+                      <div className="p-6 text-left space-y-5 overflow-y-auto flex-1">
+                        {/* Bio Story */}
+                        <div className="space-y-1">
+                          <h4 className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono">My Story</h4>
+                          <p className="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed font-sans">{selectedSearchProfile.bio}</p>
+                        </div>
+
+                        {/* Interests */}
+                        <div className="space-y-1.5">
+                          <h4 className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono">Interests & Vibes</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedSearchProfile.interests.map((tag) => (
+                              <span key={tag} className="px-2.5 py-1 bg-neutral-50 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 text-xs rounded-xl font-medium border border-neutral-100 dark:border-neutral-700/40">
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* AI Synergy Report section */}
+                        <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-pink-500 animate-pulse" />
+                              AI Aura Synergy Report
+                            </h4>
+                            <span className="text-[9px] font-mono font-bold bg-pink-50 dark:bg-pink-950/20 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded">POWERED BY GEMINI</span>
+                          </div>
+
+                          {searchReportState === 'loading' && (
+                            <div className="bg-neutral-50 dark:bg-neutral-950/40 p-5 rounded-2xl border border-neutral-100 dark:border-neutral-850/60 flex flex-col items-center justify-center space-y-2 text-center py-8">
+                              <Loader2 className="w-6 h-6 text-pink-500 animate-spin" />
+                              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Consulting AI alignment matrices...</span>
+                            </div>
+                          )}
+
+                          {searchReportState === 'failed' && (
+                            <div className="bg-red-50 dark:bg-red-950/20 p-4 rounded-2xl border border-red-150 text-center text-xs text-red-600 dark:text-red-400">
+                              Failed to generate alignment report. Please try again.
+                            </div>
+                          )}
+
+                          {searchReportState === 'success' && searchCompatibilityReport && (
+                            <div className="space-y-4">
+                              {/* AI Analysis Card */}
+                              <div className="bg-indigo-50/40 dark:bg-indigo-950/15 p-4 rounded-2xl border border-indigo-100/30 dark:border-indigo-900/30 text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed font-sans whitespace-pre-line text-left">
+                                {searchCompatibilityReport}
+                              </div>
+
+                              {/* Icebreakers helper */}
+                              {searchIcebreakers.length > 0 && (
+                                <div className="space-y-2">
+                                  <h5 className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider font-mono">Suggested AI Conversation Icebreakers</h5>
+                                  <div className="space-y-2">
+                                    {searchIcebreakers.map((ice, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="bg-neutral-50 dark:bg-neutral-950/40 hover:bg-neutral-100 dark:hover:bg-neutral-900 p-3 rounded-xl border border-neutral-100 dark:border-neutral-850 text-xs text-neutral-700 dark:text-neutral-300 transition text-left flex justify-between items-center gap-2 group/ice cursor-pointer"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(ice);
+                                          triggerPushNotification("Icebreaker Copied!", "Copied message to clipboard.");
+                                        }}
+                                      >
+                                        <p className="flex-1 leading-relaxed font-medium">"{ice}"</p>
+                                        <span className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover/ice:opacity-100 transition shrink-0">Tap to Copy</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Modal Footer actions */}
+                      <div className="p-5 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50 flex items-center justify-between gap-3 shrink-0">
+                        <button
+                          onClick={() => {
+                            handleSearchConnect(selectedSearchProfile.id, 'left');
+                            setSelectedSearchProfile(null);
+                          }}
+                          className="px-5 py-3 bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-700 dark:text-neutral-300 text-xs font-bold rounded-2xl transition cursor-pointer flex-1"
+                        >
+                          Pass Profile
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            handleSearchConnect(selectedSearchProfile.id, 'right');
+                            setSelectedSearchProfile(null);
+                            triggerPushNotification("Connection Request Sent", `You connected with ${selectedSearchProfile.name}!`);
+                          }}
+                          className="px-5 py-3 bg-pink-500 hover:bg-pink-600 text-white text-xs font-bold rounded-2xl transition cursor-pointer flex-1 flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md"
+                        >
+                          <Heart className="w-4 h-4 fill-current" />
+                          Connect & Spark
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
             </motion.div>
           )}
 
@@ -699,6 +1233,7 @@ export default function App() {
                 onBackToMatches={() => setActiveMatchId(null)}
                 userProfile={profile}
                 onBlockUser={handleUserBlockedOrReported}
+                onNewMessageNotification={triggerPushNotification}
               />
             </motion.div>
           )}

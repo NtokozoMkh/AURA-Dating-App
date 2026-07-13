@@ -12,6 +12,7 @@ interface ChatRoomProps {
   onBackToMatches?: () => void;
   userProfile: UserProfile | null;
   onBlockUser?: (profileId: string) => void;
+  onNewMessageNotification?: (title: string, body: string, avatarUrl?: string, onClick?: () => void) => void;
 }
 
 export default function ChatRoom({
@@ -21,7 +22,8 @@ export default function ChatRoom({
   onSendMessage,
   onBackToMatches,
   userProfile,
-  onBlockUser
+  onBlockUser,
+  onNewMessageNotification
 }: ChatRoomProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -32,6 +34,7 @@ export default function ChatRoom({
   const socketRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<any>(null);
   const isUserTypingRef = useRef<boolean>(false);
+  const notifiedMessagesRef = useRef<Set<string>>(new Set());
 
   const activeMatch = matches.find((m) => m.id === activeMatchId);
 
@@ -384,6 +387,31 @@ export default function ChatRoom({
     return () => clearInterval(timer);
   }, []);
 
+  // Helper to detect and notify for new incoming messages
+  const checkNewMessagesAndNotify = (msgs: ChatMessage[]) => {
+    if (!activeMatchId || !onNewMessageNotification) return;
+    const activeMatch = matches.find((m) => m.id === activeMatchId);
+    const senderName = activeMatch?.profile.name || "Aura Connection";
+    const senderAvatar = activeMatch?.profile.avatarUrl;
+
+    msgs.forEach((msg) => {
+      if (msg.senderId !== 'user' && !notifiedMessagesRef.current.has(msg.id)) {
+        notifiedMessagesRef.current.add(msg.id);
+        
+        // Only trigger if message is extremely fresh (e.g. less than 15 seconds old)
+        if (Date.now() - msg.createdAt < 15000) {
+          onNewMessageNotification(
+            `New message from ${senderName}`,
+            msg.text || "Sent a media attachment",
+            senderAvatar
+          );
+        }
+      } else if (msg.senderId === 'user') {
+        notifiedMessagesRef.current.add(msg.id);
+      }
+    });
+  };
+
   // REST API Fallback Fetcher
   const fetchMessages = async () => {
     if (!activeMatchId) return;
@@ -396,6 +424,7 @@ export default function ChatRoom({
       if (res.ok) {
         const data = await res.json();
         setMessages(data);
+        checkNewMessagesAndNotify(data);
         if (data.length > 0 && data[data.length - 1].senderId !== 'user') {
           setIsTyping(false);
         }
@@ -442,6 +471,7 @@ export default function ChatRoom({
           
           if (data.type === 'history') {
             setMessages(data.messages);
+            checkNewMessagesAndNotify(data.messages);
           } else if (data.type === 'message') {
             const newMsg = data.message;
             // De-duplicate messages
@@ -451,6 +481,7 @@ export default function ChatRoom({
               if (exists) return cleanPrev;
               return [...cleanPrev, newMsg];
             });
+            checkNewMessagesAndNotify([newMsg]);
             setIsTyping(false);
           } else if (data.type === 'typing') {
             if (data.senderId !== 'user') {
@@ -570,9 +601,11 @@ export default function ChatRoom({
   };
 
   // Helper: Format milliseconds into a high-contrast ticking timer (HH:MM:SS)
-  const EXPIRY_MS = isPremiumUser ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const isInfinite = userProfile?.subscriptionPlan === 'infinite';
+  const EXPIRY_MS = isInfinite ? Infinity : (isPremiumUser ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
 
   const formatTimeLeft = (createdAt: number) => {
+    if (isInfinite) return "👑 No Expiry";
     const elapsed = currentTime - createdAt;
     const timeLeft = EXPIRY_MS - elapsed;
 
@@ -588,14 +621,15 @@ export default function ChatRoom({
 
   // Helper: Calculate progress percentage of message life
   const getProgressPercent = (createdAt: number) => {
+    if (isInfinite) return 100;
     const elapsed = currentTime - createdAt;
     return Math.max(0, Math.min(100, ((EXPIRY_MS - elapsed) / EXPIRY_MS) * 100));
   };
 
   // Filter out any messages that physically expired (older than EXPIRY_MS)
-  const unexpiredMessages = messages.filter(
-    (msg) => currentTime - msg.createdAt < EXPIRY_MS
-  );
+  const unexpiredMessages = isInfinite
+    ? messages
+    : messages.filter((msg) => currentTime - msg.createdAt < EXPIRY_MS);
 
   return (
     <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-100 dark:border-neutral-800 shadow-sm overflow-hidden h-[calc(100vh-140px)] lg:h-[calc(100vh-100px)] min-h-[500px] lg:max-h-[850px] flex" id="chat-room-container">
@@ -604,7 +638,13 @@ export default function ChatRoom({
         <div className="p-4 border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 space-y-1.5 text-left">
           <h3 className="text-base font-bold font-display text-neutral-900 dark:text-neutral-100">Intentional Chats</h3>
           <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium leading-relaxed">
-            Chats completely dissolve after <span className="text-pink-600 font-bold">{isPremiumUser ? '48 hours' : '24 hours'}</span>. Focus, connect, and move to real-life plans.
+            {isInfinite ? (
+              <span className="text-pink-600 dark:text-pink-400 font-bold flex items-center gap-1">
+                👑 Aura Infinity active: Chats never expire!
+              </span>
+            ) : (
+              <>Chats completely dissolve after <span className="text-pink-600 font-bold">{isPremiumUser ? '48 hours' : '24 hours'}</span>. Focus, connect, and move to real-life plans.</>
+            )}
           </p>
         </div>
 

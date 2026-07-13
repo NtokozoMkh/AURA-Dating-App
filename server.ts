@@ -314,7 +314,7 @@ async function syncUserToFirestore(username: string, account: UserAccount) {
     const docRef = doc(dbFirestore, "accounts", username);
     await setDoc(docRef, account);
   } catch (err) {
-    console.error(`Error saving account for ${username} to Firestore:`, err);
+    console.warn(`Note/Warning saving account for ${username} to Firestore:`, err.message || err);
   }
 }
 
@@ -397,6 +397,33 @@ writeDb(currentDb);
 // Sync from Firestore on startup
 syncFromFirestore(currentDb).then(() => {
   writeDb(currentDb);
+});
+
+// Middleware to dynamically load user accounts from Firestore if not in memory cache
+app.use(async (req, res, next) => {
+  try {
+    const token = (req.headers["x-user-token"] as string) || "";
+    if (token && token.startsWith("token_")) {
+      const username = token.substring(6).toLowerCase().trim();
+      const db = readDb();
+      if (!db.accounts) {
+        db.accounts = {};
+      }
+      if (!db.accounts[username]) {
+        console.log(`On-demand loading profile for ${username} from Firestore...`);
+        const docRef = doc(dbFirestore, "accounts", username);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          db.accounts[username] = docSnap.data() as UserAccount;
+          writeDb(db);
+          console.log(`Successfully loaded and cached account for ${username}.`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in dynamic account loader middleware:", err);
+  }
+  next();
 });
 
 // API REST ENDPOINTS
@@ -488,20 +515,77 @@ app.post("/api/signin", (req, res) => {
   });
 });
 
+// Reset password endpoint (called by client to keep server and Firestore in sync)
+app.post("/api/reset-password", (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password are required." });
+  }
+
+  const db = readDb();
+  const lowercaseUsername = username.toLowerCase().trim();
+
+  if (db.accounts && db.accounts[lowercaseUsername]) {
+    db.accounts[lowercaseUsername].passwordHash = password;
+    writeDb(db);
+  }
+
+  res.json({
+    status: "ok",
+    message: "Password reset synced with server database."
+  });
+});
+
 // 1. Get current user profile
 app.get("/api/profile", (req, res) => {
   const db = readDb();
   const context = getAccountContext(req, db);
-  res.json(context.profile);
+  const profileWithUsername = {
+    ...context.profile,
+    username: context.username || "alex"
+  };
+  res.json(profileWithUsername);
 });
 
 // 2. Update user profile
 app.post("/api/profile", (req, res) => {
   const db = readDb();
   const context = getAccountContext(req, db);
-  context.profile = { ...context.profile, ...req.body };
+  
+  const newUsername = req.body.username ? req.body.username.toLowerCase().trim().replace(/^@/, '') : '';
+  if (newUsername && newUsername !== context.username) {
+    // If we have registered accounts, enforce uniqueness
+    if (db.accounts && db.accounts[newUsername]) {
+      return res.status(400).json({ error: "Username is already taken by another user." });
+    }
+    
+    const oldUsername = context.username;
+    if (db.accounts && db.accounts[oldUsername]) {
+      const account = db.accounts[oldUsername];
+      account.username = newUsername;
+      
+      // Move account data to the new key
+      db.accounts[newUsername] = account;
+      delete db.accounts[oldUsername];
+      
+      context.profile = { ...context.profile, ...req.body, username: newUsername };
+      account.profile = context.profile;
+      
+      writeDb(db);
+      return res.json({
+        ...context.profile,
+        token: `token_${newUsername}`,
+        username: newUsername
+      });
+    }
+  }
+
+  context.profile = { ...context.profile, ...req.body, username: context.username || "alex" };
   saveAccountContext(req, context, db);
-  res.json(context.profile);
+  res.json({
+    ...context.profile,
+    username: context.username || "alex"
+  });
 });
 
 // 2b. Upgrade user subscription
@@ -674,6 +758,49 @@ function calculateMatchScore(userAnswers: { [key: string]: number }, matchAnswer
   return Math.round(Math.min(99, Math.max(65, percentage)));
 }
 
+// Helper: Compile all swipe-ready and search-ready profiles including registered users
+function getAllAvailableProfiles(context: any, db: DatabaseSchema): MatchProfile[] {
+  const list: MatchProfile[] = [...DEFAULT_MATCH_PROFILES];
+  
+  if (db.accounts) {
+    for (const username of Object.keys(db.accounts)) {
+      const acc = db.accounts[username];
+      if (acc && acc.profile && acc.profile.id !== context.profile.id) {
+        const profile = acc.profile;
+        if (!list.some((p) => p.id === profile.id)) {
+          list.push({
+            id: profile.id,
+            name: profile.name,
+            age: profile.age,
+            gender: profile.gender,
+            occupation: profile.occupation,
+            bio: profile.bio,
+            interests: profile.interests,
+            mbti: profile.mbti,
+            personalityAnswers: profile.personalityAnswers,
+            avatarUrl: profile.avatarUrl,
+            isVerified: profile.isVerified
+          });
+        }
+      }
+    }
+  }
+  
+  return list;
+}
+
+// Helper: Find a registered user account key by their profile ID
+function getRegisteredUserAccountKeyByProfileId(profileId: string, db: DatabaseSchema): string | null {
+  if (db.accounts) {
+    for (const key of Object.keys(db.accounts)) {
+      if (db.accounts[key].profile && db.accounts[key].profile.id === profileId) {
+        return key;
+      }
+    }
+  }
+  return null;
+}
+
 // 5. Get available swipe cards (not swiped yet)
 app.get("/api/cards", (req, res) => {
   const db = readDb();
@@ -681,10 +808,13 @@ app.get("/api/cards", (req, res) => {
   const user = context.profile;
   const swipes = context.swipes;
 
+  // Compile both default mock profiles and registered user profiles
+  const allProfiles = getAllAvailableProfiles(context, db);
+
   // Filter out already swiped profiles, and blocked/reported profiles
   const blockedIds = user.blockedUserIds || [];
   const reportedIds = user.reportedUserIds || [];
-  const availableProfiles = DEFAULT_MATCH_PROFILES.filter(
+  const availableProfiles = allProfiles.filter(
     (profile) => !swipes[profile.id] && !blockedIds.includes(profile.id) && !reportedIds.includes(profile.id)
   );
 
@@ -703,6 +833,64 @@ app.get("/api/cards", (req, res) => {
   res.json(cards);
 });
 
+// 5b. Search matching profiles
+app.get("/api/search", (req, res) => {
+  const db = readDb();
+  const context = getAccountContext(req, db);
+  const user = context.profile;
+  const swipes = context.swipes;
+  
+  const query = ((req.query.q as string) || "").toLowerCase().trim();
+  const genderFilter = (req.query.gender as string) || "";
+  const mbtiFilter = (req.query.mbti as string) || "";
+  const interestFilter = (req.query.interest as string) || "";
+
+  const blockedIds = user.blockedUserIds || [];
+  const reportedIds = user.reportedUserIds || [];
+
+  const allProfiles = getAllAvailableProfiles(context, db);
+
+  let filtered = allProfiles.filter((profile) => {
+    // Exclude blocked or reported profiles
+    if (blockedIds.includes(profile.id) || reportedIds.includes(profile.id)) return false;
+
+    // Apply gender filter
+    if (genderFilter && genderFilter !== "everyone" && profile.gender !== genderFilter) return false;
+
+    // Apply MBTI filter
+    if (mbtiFilter && profile.mbti.toLowerCase() !== mbtiFilter.toLowerCase()) return false;
+
+    // Apply interest filter
+    if (interestFilter && !profile.interests.some(i => i.toLowerCase().includes(interestFilter.toLowerCase()))) return false;
+
+    // Apply search query (search name, bio, occupation, or interests)
+    if (query) {
+      const matchName = profile.name.toLowerCase().includes(query);
+      const matchBio = profile.bio.toLowerCase().includes(query);
+      const matchOcc = profile.occupation.toLowerCase().includes(query);
+      const matchInterests = profile.interests.some(i => i.toLowerCase().includes(query));
+      if (!matchName && !matchBio && !matchOcc && !matchInterests) return false;
+    }
+
+    return true;
+  });
+
+  // Map with compatibility score
+  const results = filtered.map((profile) => {
+    const compatibilityScore = calculateMatchScore(user.personalityAnswers, profile.personalityAnswers);
+    return {
+      ...profile,
+      compatibilityScore,
+      swiped: swipes[profile.id] || null // Let frontend know if they have already swiped this user
+    };
+  });
+
+  // Sort by highest compatibility score first
+  results.sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+
+  res.json(results);
+});
+
 // 6. Swipe action (left or right)
 app.post("/api/swipe", async (req, res) => {
   const db = readDb();
@@ -719,24 +907,100 @@ app.post("/api/swipe", async (req, res) => {
   let matchObj: Match | null = null;
 
   if (direction === "right") {
-    // 70% chance of matching to simulate active dating pool
-    const matchProfile = DEFAULT_MATCH_PROFILES.find((p) => p.id === profileId);
+    const allProfiles = getAllAvailableProfiles(context, db);
+    const matchProfile = allProfiles.find((p) => p.id === profileId);
+
     if (matchProfile) {
-      isMatch = true;
-      const score = calculateMatchScore(context.profile.personalityAnswers, matchProfile.personalityAnswers);
-      
-      const newMatchProfile = {
-        ...matchProfile,
-        compatibilityScore: score
-      };
+      // Check if this is a registered user
+      const otherAccountKey = getRegisteredUserAccountKeyByProfileId(profileId, db);
 
-      matchObj = {
-        id: `match_${profileId}_${Date.now()}`,
-        profile: newMatchProfile,
-        matchedAt: Date.now(),
-      };
+      if (otherAccountKey && db.accounts) {
+        const otherAcc = db.accounts[otherAccountKey];
+        const alreadySwipedRightByOther = otherAcc.swipes && otherAcc.swipes[context.profile.id] === 'right';
+        const alreadySwipedLeftByOther = otherAcc.swipes && otherAcc.swipes[context.profile.id] === 'left';
 
-      context.matches.push(matchObj);
+        // Match if they liked us already, or 70% simulated like-back if they haven't swiped yet
+        let shouldMatch = alreadySwipedRightByOther;
+        if (!alreadySwipedRightByOther && !alreadySwipedLeftByOther) {
+          if (Math.random() < 0.70) {
+            shouldMatch = true;
+            if (!otherAcc.swipes) {
+              otherAcc.swipes = {};
+            }
+            otherAcc.swipes[context.profile.id] = 'right';
+          }
+        }
+
+        if (shouldMatch) {
+          isMatch = true;
+          const matchId = `match_${context.profile.id}_${profileId}`;
+          const score = calculateMatchScore(context.profile.personalityAnswers, matchProfile.personalityAnswers);
+
+          const matchProfileForUser = {
+            ...matchProfile,
+            compatibilityScore: score
+          };
+
+          matchObj = {
+            id: matchId,
+            profile: matchProfileForUser,
+            matchedAt: Date.now()
+          };
+
+          // Add to current user's matches
+          if (!context.matches) {
+            context.matches = [];
+          }
+          context.matches.push(matchObj);
+
+          // Add to other user's matches (so they see it when they log in)
+          if (!otherAcc.matches) {
+            otherAcc.matches = [];
+          }
+          const myProfileMapped: MatchProfile = {
+            id: context.profile.id,
+            name: context.profile.name,
+            age: context.profile.age,
+            gender: context.profile.gender,
+            occupation: context.profile.occupation,
+            bio: context.profile.bio,
+            interests: context.profile.interests,
+            mbti: context.profile.mbti,
+            personalityAnswers: context.profile.personalityAnswers,
+            avatarUrl: context.profile.avatarUrl,
+            isVerified: context.profile.isVerified,
+            compatibilityScore: score
+          };
+
+          otherAcc.matches.push({
+            id: matchId,
+            profile: myProfileMapped,
+            matchedAt: Date.now()
+          });
+        }
+      } else {
+        // Mock Profile swipe handling (DEFAULT_MATCH_PROFILES)
+        // 70% chance of matching to simulate active dating pool
+        if (Math.random() < 0.70) {
+          isMatch = true;
+          const score = calculateMatchScore(context.profile.personalityAnswers, matchProfile.personalityAnswers);
+          const newMatchProfile = {
+            ...matchProfile,
+            compatibilityScore: score
+          };
+
+          matchObj = {
+            id: `match_${profileId}_${Date.now()}`,
+            profile: newMatchProfile,
+            matchedAt: Date.now(),
+          };
+
+          if (!context.matches) {
+            context.matches = [];
+          }
+          context.matches.push(matchObj);
+        }
+      }
     }
   }
 
@@ -752,10 +1016,14 @@ app.get("/api/matches", (req, res) => {
   // Clean disappearing messages older than 24h (48h for premium)
   const now = Date.now();
   const isPremium = context.profile.isPremium;
-  const EXPIRY_MS = isPremium ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const isInfinite = context.profile.subscriptionPlan === 'infinite';
+  const EXPIRY_MS = isInfinite ? Infinity : (isPremium ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
   
-  // Filter out stale messages in database
-  const activeMessages = context.messages.filter(msg => now - msg.createdAt < EXPIRY_MS);
+  // Filter out stale messages in database (skip if infinite subscription)
+  const activeMessages = isInfinite 
+    ? context.messages 
+    : context.messages.filter(msg => now - msg.createdAt < EXPIRY_MS);
+
   if (activeMessages.length !== context.messages.length) {
     context.messages = activeMessages;
     saveAccountContext(req, context, db);
@@ -868,7 +1136,7 @@ app.get("/api/compatibility/:matchId", async (req, res) => {
     target = match.profile;
   } else {
     // If not a matched profile, allow viewing from pre-swiped profiles in the discover deck
-    target = DEFAULT_MATCH_PROFILES.find(p => p.id === matchId);
+    target = getAllAvailableProfiles(context, db).find(p => p.id === matchId);
   }
 
   if (!target) {
@@ -981,7 +1249,7 @@ app.get("/api/compatibility/:matchId", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Gemini compatibility generation error:", err);
+    console.warn("Gemini compatibility generation info/warning (fallback used):", err.message || err);
     // Fallback on error
     const score = target.compatibilityScore || calculateMatchScore(user.personalityAnswers, target.personalityAnswers);
     const fallbackReport = `You have an incredible synergy of ${score}%. Your alignment on creative endeavors, design appreciation, and shared social paces means you will find a natural rythm easily.`;
@@ -996,7 +1264,7 @@ app.get("/api/compatibility/:matchId", async (req, res) => {
   }
 });
 
-// 9. Get chat messages for a specific match (Automatically filters chats older than 24h/48h)
+// 9. Get chat messages for a specific match (Automatically filters chats older than 24h/48h unless infinite subscription)
 app.get("/api/chat/:matchId", (req, res) => {
   const { matchId } = req.params;
   const db = readDb();
@@ -1004,17 +1272,18 @@ app.get("/api/chat/:matchId", (req, res) => {
 
   const now = Date.now();
   const isPremium = context.profile.isPremium;
-  const EXPIRY_MS = isPremium ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const isInfinite = context.profile.subscriptionPlan === 'infinite';
+  const EXPIRY_MS = isInfinite ? Infinity : (isPremium ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
 
   // Filter messages for this match that are NOT expired
   const matchMsgs = context.messages.filter(
-    (msg) => msg.matchId === matchId && now - msg.createdAt < EXPIRY_MS
+    (msg) => msg.matchId === matchId && (isInfinite || now - msg.createdAt < EXPIRY_MS)
   );
 
   // Map messages to include exact time remaining in milliseconds
   const msgsWithExpiry = matchMsgs.map((msg) => {
     const elapsed = now - msg.createdAt;
-    const timeLeftMs = Math.max(0, EXPIRY_MS - elapsed);
+    const timeLeftMs = isInfinite ? Infinity : Math.max(0, EXPIRY_MS - elapsed);
     return {
       ...msg,
       timeLeftMs,
@@ -1054,7 +1323,38 @@ app.post("/api/chat/:matchId", async (req, res) => {
     voiceDuration,
   };
 
+  if (!context.messages) {
+    context.messages = [];
+  }
   context.messages.push(userMsg);
+
+  // Check if this is a registered user
+  const otherAccountKey = getRegisteredUserAccountKeyByProfileId(match.profile.id, db);
+
+  if (otherAccountKey && db.accounts) {
+    const otherAcc = db.accounts[otherAccountKey];
+    if (!otherAcc.messages) {
+      otherAcc.messages = [];
+    }
+    const receiverMsg: ChatMessage = {
+      id: userMsg.id,
+      matchId,
+      senderId: context.profile.id,
+      text: userMsg.text,
+      createdAt: userMsg.createdAt,
+      mediaUrl,
+      mediaType,
+      voiceDuration
+    };
+    otherAcc.messages.push(receiverMsg);
+    saveAccountContext(req, context, db);
+
+    // Broadcast message to active websockets
+    broadcastToMatch(matchId, { type: "message", message: userMsg });
+    return res.json(userMsg);
+  }
+
+  // Otherwise, it is a mock profile - trigger simulated typing and intelligent AI response
   saveAccountContext(req, context, db);
 
   // Broadcast user message to active websockets
@@ -1119,7 +1419,7 @@ app.post("/api/chat/:matchId", async (req, res) => {
 
         responseText = response.text?.trim() || `Wow! That sounds really cool. Tell me more!`;
       } catch (err) {
-        console.error("Error generating match response:", err);
+        console.warn("Info/Warning generating match response (fallback used):", err.message || err);
         responseText = `Oh that's awesome! I would love to hear more about that. 😊`;
       }
     } else {
@@ -1206,9 +1506,10 @@ wss.on("connection", (ws) => {
         const accountContext = getAccountContext(currentToken, db);
         const now = Date.now();
         const isPremium = accountContext.profile.isPremium;
-        const EXPIRY_MS = isPremium ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        const isInfinite = accountContext.profile.subscriptionPlan === 'infinite';
+        const EXPIRY_MS = isInfinite ? Infinity : (isPremium ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
         const matchMsgs = accountContext.messages.filter(
-          (msg) => msg.matchId === matchId && now - msg.createdAt < EXPIRY_MS
+          (msg) => msg.matchId === matchId && (isInfinite || now - msg.createdAt < EXPIRY_MS)
         );
         matchMsgs.sort((a, b) => a.createdAt - b.createdAt);
 
@@ -1243,7 +1544,37 @@ wss.on("connection", (ws) => {
           voiceDuration,
         };
 
+        if (!accountContext.messages) {
+          accountContext.messages = [];
+        }
         accountContext.messages.push(userMsg);
+
+        // Check if this is a registered user
+        const otherAccountKey = getRegisteredUserAccountKeyByProfileId(match.profile.id, db);
+
+        if (otherAccountKey && db.accounts) {
+          const otherAcc = db.accounts[otherAccountKey];
+          if (!otherAcc.messages) {
+            otherAcc.messages = [];
+          }
+          const receiverMsg: ChatMessage = {
+            id: userMsg.id,
+            matchId,
+            senderId: accountContext.profile.id,
+            text: userMsg.text,
+            createdAt: userMsg.createdAt,
+            mediaUrl,
+            mediaType,
+            voiceDuration
+          };
+          otherAcc.messages.push(receiverMsg);
+          saveAccountContext(currentToken, accountContext, db);
+
+          // Broadcast user message to all clients in the match room
+          broadcastToMatch(matchId, { type: "message", message: userMsg });
+          return;
+        }
+
         saveAccountContext(currentToken, accountContext, db);
 
         // Broadcast user message to all clients in the match room
@@ -1303,7 +1634,7 @@ wss.on("connection", (ws) => {
 
               responseText = response.text?.trim() || `Wow! That sounds really cool. Tell me more!`;
             } catch (err) {
-              console.error("Error generating match response via socket:", err);
+              console.warn("Info/Warning generating match response via socket (fallback used):", err.message || err);
               responseText = `Oh that's awesome! I would love to hear more about that. 😊`;
             }
           } else {
